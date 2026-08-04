@@ -38,5 +38,14 @@ call() { # name, json-args
   call am_truth_table   '{"expression":"a and (b or not c)"}'
   call am_solve_system  '{"equations":["x + y = 3","x - y = 1"],"variables":["x","y"]}'
   call am_to_sympy      '{"expression":"sin(x)/x"}'
+
+  # Linear algebra. The two `notcontains:provided` checks guard a real defect: the
+  # determinant is computed by division-based elimination, which leaves a pivot guard that
+  # is not mathematics — det([[a,b],[c,d]]) is a*d-b*c for every a, and [[0,J],[J,0]] has
+  # eigenvalues +/-J including at J=0.
+  call am_matrix        '{"operation":"determinant","matrix":[["a","b"],["c","d"]]}'
+  call am_matrix        '{"operation":"tensor_product","matrix":[["1/sqrt(2)","1/sqrt(2)"],["1/sqrt(2)","-1/sqrt(2)"]],"matrix_b":[["1","0"],["0","1"]]}'
+  call am_eigenvalues   '{"matrix":[["0","J"],["J","0"]]}'
+
   printf '{"jsonrpc":"2.0","id":99,"method":"resources/list","params":{}}\n'
 } | timeout 300 "$BIN" 2>/dev/null | python3 "$ROOT/test/report.py"

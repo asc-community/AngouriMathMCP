@@ -106,6 +106,8 @@ makes it get called.
 | `am_check_steps` | Checks a chain of working and says *which* step broke. |
 | `am_domain_check` | Domain guards, structural hazards, and where it stops being real. |
 | `am_base_convert` | Between bases 2–36. |
+| `am_matrix` | Determinant, inverse, transpose, rank, RREF, trace, multiply, tensor product, power. |
+| `am_eigenvalues` | Exact eigenvalues via the characteristic polynomial, symbolic entries allowed. |
 | `am_to_sympy` | Runnable SymPy program, for cross-checking. |
 
 Two resources are served: `angourimath://syntax` (including the parse traps below) and
@@ -165,6 +167,32 @@ calibration curve `v = k·d² + m·d` for `d` gives both quadratic branches.
 enumerated, which is how you find the case you didn't think about.
 
 **Exact test oracles.** `sin(π/3) + cos(π/6)` → `sqrt(3)`, not a float the model guessed.
+
+## Linear algebra, and quantum circuits
+
+Entries are expressions, so a matrix of symbols gives a formula rather than a number:
+`am_eigenvalues [[a,b],[c,d]]` returns the textbook `(a+d ± sqrt((a+d)^2 - 4(ad-bc)))/2`, and
+`[[0,J],[J,0]]` returns `{J, -J}` in terms of J.
+
+`tensor_product` is what makes quantum work possible. Chaining three calls —
+`H (x) I`, then `CNOT * that`, then `* |00>` — produces the Bell state as
+`[1/sqrt(2), 0, 0, 1/sqrt(2)]`. Exactly, not `0.7071`. And because parameters stay symbolic,
+`Ry(θ) · Ry(θ)ᵀ = I` can be *proved* for all θ rather than sampled, which is not something a
+numerical simulator can do.
+
+Limits worth knowing: there are no eigenvectors, no SVD, and no matrix exponential, so
+`e^(-iHt)` and time evolution are out. Beyond 4×4 with symbolic entries eigenvalues decline,
+and that is Abel–Ruffini rather than a defect — no general radical solution exists. Ten qubits
+would be a 1024×1024 symbolic matrix; this dies long before that.
+
+**A defect it works around.** `Entity.Matrix.Determinant` calls GenericTensor's
+`DeterminantGaussianSafeDivision`, which divides by pivots and leaves a `provided` guard for
+each. Those guards are artefacts, not mathematics: the raw output claims
+`det([[a,b],[c,d]]) = a*d - b*c provided not a = 0`, and eigenvalues of `[[0,J],[J,0]]` come
+back as `J provided not J = 0` — excluding a perfectly valid case. This server simplifies
+*first* (the guard is what licenses cancelling `a/a`), then strips the guard and reports it
+under `dropped_guards`. The real fix belongs upstream: GenericTensor already ships a
+division-free `DeterminantLaplace`, which emits none of this.
 
 ## Step-by-step, and knowing what to distrust
 

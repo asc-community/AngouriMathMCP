@@ -243,6 +243,72 @@ public static class Tools
                 },
             }, "value", "to_base")),
 
+        Tool("am_matrix",
+            "Exact symbolic linear algebra. Entries are expressions, so they may contain " +
+            "variables — the determinant of a matrix of symbols comes back as a formula, not " +
+            "a number. `tensor_product` builds multi-qubit operators from single-qubit ones, " +
+            "which is what makes quantum circuit algebra work: CNOT * (H (x) I) * |00> gives " +
+            "the Bell state as exactly 1/sqrt(2), not 0.7071.",
+            Schema(new JsonObject
+            {
+                ["operation"] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["enum"] = new JsonArray
+                    {
+                        "determinant", "inverse", "transpose", "rank", "rref", "trace",
+                        "multiply", "add", "subtract", "tensor_product", "power",
+                    },
+                    ["description"] = "What to compute.",
+                },
+                ["matrix"] = new JsonObject
+                {
+                    ["type"] = "array",
+                    ["items"] = new JsonObject
+                    {
+                        ["type"] = "array",
+                        ["items"] = new JsonObject { ["type"] = "string" },
+                    },
+                    ["description"] = "Rows of expression strings, e.g. [[\"1\",\"x\"],[\"0\",\"1\"]]. " +
+                                      "A column vector is [[\"1\"],[\"0\"]].",
+                },
+                ["matrix_b"] = new JsonObject
+                {
+                    ["type"] = "array",
+                    ["items"] = new JsonObject
+                    {
+                        ["type"] = "array",
+                        ["items"] = new JsonObject { ["type"] = "string" },
+                    },
+                    ["description"] = "Second operand, for multiply / add / subtract / tensor_product.",
+                },
+                ["exponent"] = new JsonObject
+                {
+                    ["type"] = "integer",
+                    ["description"] = "For 'power'. Non-negative.",
+                },
+            }, "operation", "matrix")),
+
+        Tool("am_eigenvalues",
+            "Eigenvalues of a square matrix, exactly and symbolically — entries may contain " +
+            "variables, so a Hamiltonian [[0,J],[J,0]] returns {J, -J} in terms of J. Computed " +
+            "from the characteristic polynomial det(A - lambda*I). Expect a decline above 4x4 " +
+            "with symbolic entries: quintics have no closed form (Abel-Ruffini), which is a " +
+            "fact about mathematics rather than a limitation of this server.",
+            Schema(new JsonObject
+            {
+                ["matrix"] = new JsonObject
+                {
+                    ["type"] = "array",
+                    ["items"] = new JsonObject
+                    {
+                        ["type"] = "array",
+                        ["items"] = new JsonObject { ["type"] = "string" },
+                    },
+                    ["description"] = "Square matrix as rows of expression strings.",
+                },
+            }, "matrix")),
+
         Tool("am_classify",
             "Guess which field of science or mathematics a formula comes from, by reading " +
             "its symbols and structure. Inference from naming convention only — 'c' is the " +
@@ -277,6 +343,8 @@ public static class Tools
         "am_check_steps" => CheckSteps(args),
         "am_domain_check" => DomainCheck(args),
         "am_base_convert" => BaseConvert(args),
+        "am_matrix" => MatrixOp(args),
+        "am_eigenvalues" => Eigenvalues(args),
         "am_classify" => ClassifyFormula(args),
         "am_to_sympy" => ToSympy(args),
         _ => Fail($"unknown tool '{name}'"),
@@ -1015,6 +1083,191 @@ public static class Tools
             ["to_base"] = toBase,
             ["decimal"] = r.real.Stringize(),
             ["result"] = r.converted,
+        });
+    }
+
+    private static JsonObject MatrixOp(JsonObject args)
+    {
+        var operation = S(args, "operation");
+        if (string.IsNullOrWhiteSpace(operation)) return Fail("'operation' is required");
+
+        args.TryGetPropertyValue("matrix", out var aNode);
+        var a = Matrices.Parse(aNode, "matrix");
+        if (a.Value is null) return Fail(a.Error!);
+
+        var needsSecond = operation is "multiply" or "add" or "subtract" or "tensor_product";
+        Matrix? b = null;
+        var warnings = new List<string>(a.Warnings);
+
+        if (needsSecond)
+        {
+            args.TryGetPropertyValue("matrix_b", out var bNode);
+            var parsedB = Matrices.Parse(bNode, "matrix_b");
+            if (parsedB.Value is null)
+                return Fail(parsedB.Error ?? $"'{operation}' needs 'matrix_b'");
+            b = parsedB.Value;
+            warnings.AddRange(parsedB.Warnings);
+        }
+
+        var exponent = args.TryGetPropertyValue("exponent", out var e) && e is not null
+            ? e.GetValue<int>() : -1;
+        if (operation == "power" && exponent < 0)
+            return Fail("'power' needs a non-negative 'exponent'");
+
+        var guards = new List<string>();
+
+        return FromOutcome(Guard.Run<object?>(() => operation switch
+        {
+            "determinant" => a.Value.Determinant is { } det ? CleanScalar(det, guards) : null,
+            "inverse" => a.Value.Inverse is { } inv ? CleanGrid(Simplified(inv), guards) : null,
+            "transpose" => Simplified(a.Value.T),
+            "rank" => a.Value.Rank,
+            "rref" => Simplified(a.Value.ReducedRowEchelonForm),
+            "trace" => a.Value.Trace?.Simplify(),
+            "multiply" => Simplified(a.Value * b!),
+            "add" => Simplified(a.Value + b!),
+            "subtract" => Simplified(a.Value - b!),
+            "tensor_product" => Simplified(Matrix.TensorProduct(a.Value, b!)),
+            "power" => Simplified(a.Value.Pow(exponent)),
+            _ => throw new ArgumentException($"unknown operation '{operation}'"),
+        }), value =>
+        {
+            var response = new JsonObject
+            {
+                ["status"] = value is null ? "declined" : "solved",
+                ["operation"] = operation,
+                ["shape"] = $"{a.Value.RowCount}x{a.Value.ColumnCount}",
+            };
+
+            switch (value)
+            {
+                case Matrix m:
+                    response["result"] = Matrices.Render(m);
+                    response["shape_out"] = $"{m.RowCount}x{m.ColumnCount}";
+                    response["pretty"] = m.ToString(multilineFormat: true);
+                    response["latex"] = m.Latexise();
+                    break;
+                case Entity scalar:
+                    response["result"] = scalar.Stringize();
+                    response["latex"] = scalar.Latexise();
+                    break;
+                case int rank:
+                    response["result"] = rank;
+                    break;
+                case null:
+                    response["note"] = operation switch
+                    {
+                        "determinant" or "trace" => "The matrix is not square.",
+                        "inverse" => "No inverse: the matrix is singular or not square.",
+                        _ => "The operation produced no result.",
+                    };
+                    break;
+            }
+
+            if (guards.Count > 0)
+            {
+                var dropped = new JsonArray();
+                foreach (var g in guards.Distinct()) dropped.Add(g);
+                response["dropped_guards"] = dropped;
+                response["dropped_guards_note"] = Matrices.GuardNote;
+                if (operation == "inverse")
+                    response["inverse_condition"] =
+                        "The inverse exists exactly when the determinant is non-zero; that " +
+                        "is the real condition, not the pivot guards listed above.";
+            }
+
+            if (warnings.Count > 0) response["warnings"] = Warn(warnings);
+            return response;
+        });
+
+        static Entity CleanScalar(Entity e, List<string> sink)
+        {
+            var (value, found) = Matrices.Clean(e);
+            sink.AddRange(found);
+            return value;
+        }
+
+        static Matrix CleanGrid(Matrix m, List<string> sink)
+        {
+            var (value, found) = Matrices.Clean(m);
+            sink.AddRange(found);
+            return value;
+        }
+
+        static Matrix Simplified(Matrix m)
+        {
+            // Products and tensor products come back littered with `1/sqrt(2) * 1` and the
+            // like — correct, unreadable, and awkward to compare. Tidy each entry, but never
+            // at the cost of losing one.
+            var grid = new Entity[m.RowCount, m.ColumnCount];
+            for (var i = 0; i < m.RowCount; i++)
+                for (var j = 0; j < m.ColumnCount; j++)
+                {
+                    try { grid[i, j] = m[i, j].Simplify(); }
+                    catch { grid[i, j] = m[i, j]; }
+                }
+            return MathS.Matrix(grid);
+        }
+    }
+
+    private static JsonObject Eigenvalues(JsonObject args)
+    {
+        args.TryGetPropertyValue("matrix", out var node);
+        var parsed = Matrices.Parse(node, "matrix");
+        if (parsed.Value is null) return Fail(parsed.Error!);
+
+        var a = parsed.Value;
+        if (a.RowCount != a.ColumnCount)
+            return Fail($"eigenvalues need a square matrix; this one is {a.RowCount}x{a.ColumnCount}");
+
+        return FromOutcome(Guard.Run(() => Matrices.Compute(a, Var("lambda"))), eigen =>
+        {
+            var raw = eigen.Roots?.Stringize();
+            var declined = eigen.Roots is null
+                           || raw is null
+                           || Guard.IsDeclined(raw)
+                           || raw.Contains("solve(", StringComparison.Ordinal);
+
+            var response = new JsonObject
+            {
+                ["status"] = declined ? "declined" : "solved",
+                ["shape"] = $"{a.RowCount}x{a.ColumnCount}",
+                ["characteristic_polynomial"] = eigen.CharacteristicPolynomial.Stringize(),
+                ["characteristic_polynomial_latex"] = eigen.CharacteristicPolynomial.Latexise(),
+                ["eigenvalues"] = raw,
+            };
+
+            if (eigen.Roots is Set.FiniteSet finite)
+            {
+                var values = new JsonArray();
+                foreach (var root in finite) values.Add(root.Stringize());
+                response["eigenvalue_list"] = values;
+                response["count"] = finite.Count;
+                response["note"] = "Repeated roots appear once — this is the set of distinct " +
+                    "eigenvalues, not a list with algebraic multiplicity.";
+            }
+
+            if (declined)
+                response["note"] = "The characteristic polynomial could not be solved in " +
+                    "closed form. Above degree 4 with symbolic entries that is expected and " +
+                    "not a defect: no general radical solution exists (Abel-Ruffini). The " +
+                    "polynomial itself is returned and is still useful.";
+
+            if (eigen.DroppedGuards.Count > 0)
+            {
+                var dropped = new JsonArray();
+                foreach (var g in eigen.DroppedGuards) dropped.Add(g);
+                response["dropped_guards"] = dropped;
+                response["dropped_guards_note"] =
+                    "The determinant routine divides by pivots and leaves a `provided` guard " +
+                    "for each. On a symbolic matrix those are artefacts of the algorithm, not " +
+                    "mathematics — [[0,J],[J,0]] would otherwise report its eigenvalues as " +
+                    "'J provided not J = 0', excluding a perfectly valid case. They are " +
+                    "listed here rather than silently discarded.";
+            }
+
+            if (parsed.Warnings.Count > 0) response["warnings"] = Warn(parsed.Warnings);
+            return response;
         });
     }
 

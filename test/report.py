@@ -22,6 +22,9 @@ LABELS = [
     ("truth table a and (b or not c)", None),
     ("solve system x+y=3, x-y=1", "status:solved"),
     ("to sympy sin(x)/x", "contains:sympy"),
+    ("det [[a,b],[c,d]]         (no bogus guard)", "notcontains:provided"),
+    ("H (x) I                   (tensor product)", "status:solved"),
+    ("eig [[0,J],[J,0]]         (valid at J=0)", "notcontains:provided"),
     ("resources/list", None),
 ]
 
@@ -44,6 +47,7 @@ for i, reply in enumerate(replies):
     status = payload.get("status", "-")
     shown = (
         payload.get("result")
+        or payload.get("eigenvalues")
         or payload.get("solutions")
         or payload.get("sympy", "")[:40].replace("\n", " ")
         or payload.get("truth_table", "").replace("\n", " ")[:40]
