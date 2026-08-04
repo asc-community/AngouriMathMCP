@@ -5,7 +5,7 @@ import sys
 LABELS = [
     ("initialize", None),
     ("parse 'x2 + 1'            (implicit-power trap)", "warn:implicit-power"),
-    ("parse 'pow(x,y)'          (unknown-function trap)", "warn:unknown-function"),
+    ("parse 'exp(x)'            (unknown-function trap)", "warn:unknown-function"),
     ("parse '2x + 1' strict     (should refuse)", "status:failed"),
     ("simplify (x^2-1)/(x-1)    (domain condition kept)", "contains:provided"),
     ("simplify multivariate     (known: no progress)", None),

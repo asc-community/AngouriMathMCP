@@ -67,7 +67,19 @@ public static class Resources
         `ln log sqrt cbrt sqr abs signum gamma factorial phi`,
         `derivative integral limit piecewise provided apply lambda`.
 
-        For powers use `^`. There is no `pow`, no `exp` (write `e^x`), no `mod` operator.
+        ## Spellings worth knowing (verified against the grammar, not guessed)
+
+        | You might write | Reality |
+        |---|---|
+        | `factorial(10)` | **silently becomes a variable.** Use postfix: `10!` |
+        | `exp(x)`        | **silently becomes `exp * x`.** Write `e^x` |
+        | `min(a,b)`, `max(a,b)` | silently become variables. Use `piecewise` |
+        | `pow(x,y)`      | works *here* (issue #625) but lexes as `p*o*w` on the release |
+        | `mod`, `%`      | no modulus in this grammar at all |
+        | `log(2, 8)`     | correct — base first, then argument |
+
+        The "silently becomes a variable" cases are the dangerous ones: they parse, and they
+        mean something else. Anything else followed by `(` gets a warning.
 
         ## Statements
 

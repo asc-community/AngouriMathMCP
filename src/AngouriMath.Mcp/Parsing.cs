@@ -37,10 +37,28 @@ public static class Parsing
         "arsinh", "arcosh", "artanh", "arcotanh", "arsech", "arcosech",
         "arcsinh", "arccosh", "arctanh", "arccotanh",
         "log", "ln", "sqrt", "cbrt", "sqr", "abs", "signum", "sgn",
-        "gamma", "factorial", "phi", "derivative", "integral", "limit",
+        // `pow` is genuinely a function ON THIS BRANCH — issue #625 fixed it, and
+        // pow(x,y) now parses to x^y. On the released package it still lexes as p*o*w,
+        // so this entry is correct here and would be wrong against the NuGet build.
+        "pow",
+        "gamma", "phi", "derivative", "integral", "limit",
         "limitleft", "limitright", "piecewise", "provided", "apply", "lambda",
-        "domain", "elementin", "union", "intersect", "setsubtraction",
-        "and", "or", "not", "xor", "impl", "min", "max",
+        "domain", "intersect", "and", "or", "not", "xor", "impl",
+        // Verified by parsing `name(x)` against the actual grammar. Names that error on
+        // wrong arity are fine to list — the failure is loud. Deliberately ABSENT, because
+        // they silently degrade into a variable times a bracket: factorial, elementin,
+        // union, setsubtraction, min, max. Listing those suppressed the very warning this
+        // whitelist exists to raise, which is how `factorial(10)` quietly became a variable.
+    };
+
+    /// <summary>Names people reach for that this grammar spells differently.</summary>
+    private static readonly Dictionary<string, string> Misspellings = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["factorial"] = "postfix '!' — write 10! rather than factorial(10)",
+        ["exp"] = "'e^x' — there is no exp function",
+        ["mod"] = "there is no modulus operator or function in this grammar",
+        ["min"] = "not available; use piecewise or a comparison",
+        ["max"] = "not available; use piecewise or a comparison",
     };
 
     private static readonly Regex TrailingDigit = new(@"[A-Za-z_]\w*?\d", RegexOptions.Compiled);
@@ -77,10 +95,15 @@ public static class Parsing
         {
             var name = m.Groups[1].Value;
             if (KnownFunctions.Contains(name)) continue;
+
+            var hint = Misspellings.TryGetValue(name, out var spelling)
+                ? $" Use {spelling}."
+                : string.Empty;
+
             warnings.Add(
                 $"unknown-function: '{name}' is not a function AngouriMath knows, so it was " +
-                $"read as a VARIABLE multiplied by the bracketed group, not as a call. " +
-                $"Check the 'parsed' field.");
+                $"read as a VARIABLE multiplied by the bracketed group, not as a call." +
+                hint + " Check the 'parsed' field.");
         }
 
         return warnings;

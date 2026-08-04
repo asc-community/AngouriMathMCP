@@ -21,7 +21,7 @@ call() { # name, json-args
 {
   printf '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}\n'
   call am_parse         '{"expression":"x2 + 1"}'
-  call am_parse         '{"expression":"pow(x,y)"}'
+  call am_parse         '{"expression":"exp(x)"}'
   call am_parse         '{"expression":"2x + 1","strict":true}'
   call am_simplify      '{"expression":"(x^2-1)/(x-1)"}'
   call am_simplify      '{"expression":"(x^2+2*x*y+y^2)/(x^2-y^2)"}'
