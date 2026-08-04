@@ -42,12 +42,16 @@ reports them under `dropped_guards` in the meantime.
 
 ## Defects worth reporting upstream
 
+Re-verified against the development branch, not the released package — a claim that only
+reproduces on the release is not worth reporting. `Factorize(x^2 - 1)` was dropped from this
+list for exactly that reason: it returns `(x - sqrt(1)) * (x + sqrt(1))` on 1.4.0 but a clean
+`(x - 1) * (x + 1)` here.
+
 | Observed | Note |
 |---|---|
 | `Simplify(sqrt(x^2))` returns `x`, not `abs(x)` | The library then contradicts its own evaluator, which gives `2` at `x = -2`. A soundness bug. |
 | `e^(pi*sqrt(163))` accurate to only ~23 significant digits | Stable at the wrong value, so it reads as converged. Every component — `pi`, `sqrt(163)`, `pi*sqrt(163)`, `e^pi`, `e^(30*sqrt(2))` — is correct to 50 digits, and the literal-exponent form `e^40.109...` is correct. Only the composed form fails. Mechanism not isolated. |
-| `Factorize(x^2 - 1)` returns `(x - sqrt(1)) * (x + sqrt(1))` | Correct, but `sqrt(1)` should reduce to `1`. Cosmetic. |
-| `MathS.Equations(...)` throws `FutureReleaseException` on an equality | It wants each equation in `= 0` form; passing an `Equalsf` throws rather than normalising. This server rewrites `a = b` to `a - b`. |
+| `MathS.Equations(...)` throws `FutureReleaseException` on an equality | It wants each equation in `= 0` form; passing an `Equalsf` throws rather than normalising. This server rewrites `a = b` to `a - b`. **Observed on 1.4.0 and not re-checked on the branch**, because the normalisation here now hides it. |
 | `Integrate` declines `x^4*(1-x)^4/(1+x^2)` | It handles the same function once the polynomial division is done by hand, so the gap is dividing a rational function whose numerator outranks its denominator. |
 | Unknown identifiers become implicit multiplication silently | `exp(x)` parses as `exp * x`. A parse that succeeds and means something else is the worst failure class; a warning or strict default would help every consumer. |
 

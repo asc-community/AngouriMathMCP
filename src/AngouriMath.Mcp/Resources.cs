@@ -156,8 +156,9 @@ public static class Resources
 
         - `e^(pi*sqrt(163))` (Ramanujan's constant) should be
           `262537412640768743.99999999999925...`, sitting 7.5e-13 below an integer. This
-          build returns `...743.999996889...` — correct to only ~23 significant digits, and
-          stable at the wrong value, so it looks converged. Every component evaluates
+          build returns `...744.000000000024` at 30 digits — on the wrong side of the integer,
+          so the near-miss that makes the number famous is not reproduced. The exact wrong
+          value shifts between builds, which is itself a sign the computation is unstable. Every component evaluates
           correctly; only the composed form fails.
         - `sqrt(x^2)` simplifies to `x` rather than `abs(x)`.
 
@@ -225,8 +226,7 @@ public static class Resources
           while `5*sqrt(3)` is left alone. Two different-looking outputs can be equal — use
           `am_verify_equal` rather than comparing strings.
         - **Output tidiness** varies. Results are correct but not always in the form a human
-          would write — `Factorize(x^2 - 1)` gives `(x - sqrt(1)) * (x + sqrt(1))`. Pass
-          `alternatives: true` to `am_simplify` and pick a nicer form.
+          would write. Pass `alternatives: true` to `am_simplify` and pick a nicer form.
         - **Nonlinear systems** can return no solution when one exists (issue #629).
 
         ## How to talk about a result
