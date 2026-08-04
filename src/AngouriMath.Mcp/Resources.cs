@@ -84,6 +84,17 @@ public static class Resources
     private const string Reliability = """
         # Measured reliability
 
+        ## What this server is running against
+
+        **A work-in-progress development branch, not a released version.** Fixes are actively
+        being written and proposed upstream, so behaviour here differs from the published
+        AngouriMath package and will keep changing. Two consequences:
+
+        - Do not assume a result you get here matches what the released library would give.
+          Problems that hang or answer wrongly on the release are fixed on this build.
+        - Conversely, the figures below are a snapshot. If something contradicts them, trust
+          the tool's own `status` and `verified` fields over this document, and say so.
+
         Measured against a 117-problem corpus (drawn from SymPy's test suite, the Rubi
         integration suite, and the Gruntz thesis), 20 s budget per problem. Answers are not
         trusted on their face: integrals are checked by differentiating back, equation roots
@@ -111,6 +122,11 @@ public static class Resources
 
         ## Where results mislead
 
+        - **`sqrt(x^2)` simplifies to `x`, not `abs(x)`.** The library then disagrees with
+          itself: evaluating `sqrt(x^2)` at x = -2 gives 2, while the simplified form gives
+          -2. Any simplification that removes an even root over an even power is suspect on
+          the negatives. `am_verify_equal` cross-checks for this and reports
+          `status: conflict`; believe the conflict over the simplification.
         - **Simplify on multivariate rational functions** returns something equivalent but
           **unreduced, with no error** — e.g. `(x^2+2xy+y^2)/(x^2-y^2)` is not cancelled.
           A `status` of `unchanged` means no progress, not "already simplest".
@@ -121,6 +137,14 @@ public static class Resources
           `1 + x^3 + 3*(x + x^2)` rather than the collected form. Pass `alternatives: true`
           to `am_simplify` and pick a nicer one.
         - **Nonlinear systems** can return no solution when one exists (issue #629).
+
+        ## How to talk about a result
+
+        State the status you were given. If a tool returns `declined`, say the library has no
+        rule for it rather than presenting the unevaluated form as an answer. If it returns
+        `unchanged`, say it made no progress. If `verified` is false or a `conflict` is
+        reported, do not use the result. Say which tool produced a number rather than
+        implying you worked it out.
 
         ## Soundness note
 

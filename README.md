@@ -128,7 +128,11 @@ physics as mathematics and the solver enforces it.
 `Simplify(sqrt(x^2))` returns **`x`**. It should be `abs(x)`. The library then contradicts
 itself: evaluating `sqrt(x^2)` at `x = -2` correctly gives `2`, while the simplified form
 gives `-2`. This is the same class of error that `work/comparison.md` credits AngouriMath for
-*avoiding* relative to Math.NET — and it is not in `work/TRIAGE.md`.
+*avoiding* relative to Math.NET.
+
+Caveat on that claim: this is a work-in-progress branch with fixes in flight, so treat it as
+an observation on the current build rather than a verdict on the project. It is not in
+`work/TRIAGE.md` as of this commit, which is why it is written down here.
 
 It also exposed a weakness in this server: `am_verify_equal`'s exact path trusts `Simplify`,
 so it initially reported `sqrt(x^2) = x` as **equal**. It now cross-checks the original two
