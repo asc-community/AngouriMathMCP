@@ -3,6 +3,11 @@
 An MCP server exposing [AngouriMath](https://github.com/asc-community/AngouriMath) — exact
 symbolic algebra — to an LLM agent. Prototype.
 
+> Several claims below cite a companion triage workspace (`work/casbench`, `work/coverage.md`,
+> `work/TRIAGE.md`) where AngouriMath was measured against a 117-problem corpus. That
+> workspace is **not part of this repository**; the references are there so the numbers are
+> attributable rather than asserted.
+
 The thesis is not "give the model a calculator". Models are confident they can do algebra,
 so a tool that merely offers to do it for them goes unused. The thesis is **verification**:
 every integral is checked by differentiating it back, every decline is reported as a decline
@@ -11,20 +16,78 @@ parsed. The model has no ego about being checked.
 
 ## Build and run
 
+Needs the **.NET 10 SDK**. Nothing else — no external NuGet dependencies beyond
+AngouriMath itself.
+
 ```sh
 dotnet build -c Release src/AngouriMath.Mcp
 ./test/smoke.sh                      # end-to-end over real stdio JSON-RPC
 ./test/scenarios.sh                  # the use-cases below, run for real
 ```
 
-Register it (Claude Code):
+**Which AngouriMath it builds against matters.** If a sibling checkout exists at
+`../AngouriMath` relative to this repo, it is used automatically. Otherwise the build falls
+back to the released **1.4.0** package and prints a warning — the server runs, but that
+release scores 75/117 on the corpus with 3 wrong answers and 3 hangs, so parts of the
+`angourimath://reliability` resource and several tests in `test/smoke.sh` will not hold.
+See *Why the local build* at the end.
 
-```sh
-claude mcp add angourimath -- /abs/path/to/AngouriMathMCP/src/AngouriMath.Mcp/bin/Release/net10.0/angourimath-mcp
+## Installing it in an agent
+
+The build produces a single self-contained stdio executable at:
+
+```
+src/AngouriMath.Mcp/bin/Release/net10.0/angourimath-mcp
 ```
 
-Speaks newline-delimited JSON-RPC 2.0 on stdin/stdout, protocol revision `2024-11-05`. No
-external NuGet dependencies — only `System.Text.Json` and AngouriMath itself.
+It speaks newline-delimited JSON-RPC 2.0 on stdin/stdout, protocol revision `2024-11-05`.
+No network, no filesystem access, no configuration, no secrets — every tool is annotated
+`readOnlyHint` and `openWorldHint: false`, so clients can auto-approve calls. That matters
+in practice: a math tool that costs a permission click per call does not get used.
+
+**Claude Code**
+
+```sh
+claude mcp add angourimath --scope user -- "$PWD/src/AngouriMath.Mcp/bin/Release/net10.0/angourimath-mcp"
+claude mcp list          # expect: angourimath ... ✔ Connected
+```
+
+`--scope user` makes it available in every project; drop it to register for the current
+project only. Remove with `claude mcp remove angourimath --scope user`.
+
+**Claude Desktop** — add to `claude_desktop_config.json` (macOS:
+`~/Library/Application Support/Claude/`, Windows: `%APPDATA%\Claude\`):
+
+```json
+{
+  "mcpServers": {
+    "angourimath": {
+      "command": "/abs/path/to/AngouriMathMCP/src/AngouriMath.Mcp/bin/Release/net10.0/angourimath-mcp"
+    }
+  }
+}
+```
+
+**Any other MCP client** (Cursor, Zed, Continue, VS Code agents, custom hosts) takes the
+same shape — a `command` pointing at the executable, with no `args` or `env`. Use an
+absolute path: stdio servers are launched from an unspecified working directory.
+
+**Verify without a client**, which is often the fastest way to tell whether a problem is
+yours or the host's:
+
+```sh
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+  | src/AngouriMath.Mcp/bin/Release/net10.0/angourimath-mcp
+```
+
+Fifteen tools should come back. If a host reports the server as failed, run that first —
+anything written to stdout other than protocol traffic corrupts the stream.
+
+**Getting the model to actually use it.** Point it at `angourimath://reliability` and
+`angourimath://syntax` once at the start of a session. Models are confident they can do
+algebra unaided and will not reach for a calculator; they will, however, happily let their
+own work be checked. Framing the server as a verifier rather than a replacement is what
+makes it get called.
 
 ## Tools
 
@@ -192,3 +255,8 @@ convention seen on most published MCP servers comes from npm — which forbids u
 package names — and PyPI, which normalises to lowercase; it is a packaging constraint, not
 an MCP one, and does not apply to a .NET repo. The executable stays lowercase
 (`angourimath-mcp`), since that is what goes in a client config and what people type.
+
+## License
+
+MIT — see [LICENSE](LICENSE). AngouriMath itself is MIT; note that the separate
+`AngouriMathCLI` project is GPL-3.0 and is **not** used here.

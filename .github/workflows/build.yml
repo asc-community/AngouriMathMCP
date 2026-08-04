@@ -1,0 +1,23 @@
+name: build
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet build -c Release src/AngouriMath.Mcp
+
+      # Deliberately build-only. CI has no sibling AngouriMath checkout, so it builds
+      # against the released 1.4.0 package — on which several assertions in test/smoke.sh
+      # legitimately fail (integrating x*ln(x) overflows the stack there, and the limit of
+      # (1+x)^(1/x) answers 1 instead of e). Running the suite here would report red for a
+      # library difference rather than a defect in this repo.
+      - run: echo "Build OK. Run ./test/smoke.sh locally against a development checkout."

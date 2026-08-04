@@ -5,15 +5,44 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>preview</LangVersion>
+    <!-- Lowercase deliberately: this is what a user types and what goes into an MCP client
+         config, and Linux and macOS are case-sensitive. -->
     <AssemblyName>angourimath-mcp</AssemblyName>
     <RootNamespace>AngouriMath.Mcp</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
-  <ItemGroup>
-    <!-- Pinned to the local working copy, not the released NuGet package: the released
-         build is 75/117 on the corpus with 3 wrong answers and 3 hangs. See README. -->
-    <ProjectReference Include="../../../AngouriMath/Sources/AngouriMath/AngouriMath.csproj">
+
+  <!--
+    Two ways to get AngouriMath, and the choice matters more than usual.
+
+    Preferred: a sibling checkout, used automatically when present. That development branch
+    scores 111/117 on the corpus in the companion triage workspace, with no wrong answers
+    and no hangs.
+
+    Fallback: the released 1.4.0 package, so cloning this repo on its own still builds. That
+    build scores 75/117 with 3 wrong answers and 3 hangs, `1e-20` parses to `0`, and
+    FastExpression is not thread-safe. The server runs, but several behaviours documented in
+    the README and in the angourimath://reliability resource will not hold.
+  -->
+  <PropertyGroup>
+    <LocalAngouriMath>$(MSBuildThisFileDirectory)../../../AngouriMath/Sources/AngouriMath/AngouriMath.csproj</LocalAngouriMath>
+    <UseLocalAngouriMath Condition="Exists('$(LocalAngouriMath)')">true</UseLocalAngouriMath>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(UseLocalAngouriMath)' == 'true'">
+    <ProjectReference Include="$(LocalAngouriMath)">
       <SetTargetFramework>TargetFramework=net7.0</SetTargetFramework>
     </ProjectReference>
   </ItemGroup>
+
+  <ItemGroup Condition="'$(UseLocalAngouriMath)' != 'true'">
+    <PackageReference Include="AngouriMath" Version="1.4.0" />
+  </ItemGroup>
+
+  <Target Name="ReportAngouriMathSource" BeforeTargets="Build">
+    <Message Condition="'$(UseLocalAngouriMath)' == 'true'" Importance="high"
+             Text="AngouriMathMCP: building against the local AngouriMath checkout." />
+    <Warning Condition="'$(UseLocalAngouriMath)' != 'true'"
+             Text="AngouriMathMCP: no sibling AngouriMath checkout found, falling back to the released 1.4.0 package. Expect known wrong answers and hangs; see README." />
+  </Target>
 </Project>
