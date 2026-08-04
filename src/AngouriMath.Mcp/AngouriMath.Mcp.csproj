@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>preview</LangVersion>
+    <AssemblyName>angourimath-mcp</AssemblyName>
+    <RootNamespace>AngouriMath.Mcp</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Pinned to the local working copy, not the released NuGet package: the released
+         build is 75/117 on the corpus with 3 wrong answers and 3 hangs. See README. -->
+    <ProjectReference Include="../../../AngouriMath/Sources/AngouriMath/AngouriMath.csproj">
+      <SetTargetFramework>TargetFramework=net7.0</SetTargetFramework>
+    </ProjectReference>
+  </ItemGroup>
+</Project>
