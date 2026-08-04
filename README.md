@@ -330,6 +330,12 @@ MIT — see [LICENSE.md](LICENSE.md), matching AngouriMath's own licence and cop
 holder. Note that the separate
 `AngouriMathCLI` project is GPL-3.0 and is **not** used here.
 
+## Contributing
+
+`AGENTS.md` carries the invariants — ordering constraints that look arbitrary and are not,
+the build fallback that changes what the tests may assert, and the rule about what belongs
+upstream instead of here. Read it before changing anything.
+
 ## Scope
 
 This is an adapter, not a second computer-algebra system. Features that belong in AngouriMath
