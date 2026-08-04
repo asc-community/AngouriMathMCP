@@ -2,7 +2,8 @@
 # Realistic use-cases, run end-to-end against the server.
 #
 # Each case is framed as the prompt an agent would actually receive, so the output shows
-# what the tool contributes at the moment it matters — not a syntax demo.
+# what the tool contributes at the moment it matters — not a syntax demo. Unlike
+# test/smoke.sh nothing here is asserted; read it.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -15,42 +16,38 @@ call() {
 {
   printf '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}\n'
 
-  # 1. "I worked out that the integral of x*e^x is e^x*(x-1). Check me."
+  # ---- checking work that has already been done ---------------------------------------
   call am_verify_equal  '{"left":"derivative(e^x*(x-1), x)","right":"x*e^x"}'
-
-  # 2. "Same thing, but I dropped the minus sign."
   call am_verify_equal  '{"left":"derivative(e^x*(x+1), x)","right":"x*e^x"}'
+  call am_check_steps   '{"steps":["(x+1)^2 - 1","x^2 + 1 - 1","x^2"]}'
 
-  # 3. EKF measurement Jacobian: range from a 2D position.
-  call am_differentiate '{"expression":"sqrt(x^2 + y^2)","variable":"x"}'
-  call am_differentiate '{"expression":"sqrt(x^2 + y^2)","variable":"y"}'
-
-  # 4. A calibration polynomial expanded by hand in firmware, against its documented
-  #    derivation. This is the code-review use case. Note the reference temperature is
-  #    called `tref`, not `t0` — see case 12 for why that matters.
+  # ---- reviewing code against its documentation ----------------------------------------
   call am_verify_equal  '{"left":"(a*(t - tref))^2 + b*(t - tref) + c","right":"a^2*t^2 - 2*a^2*t*tref + a^2*tref^2 + b*t - b*tref + c"}'
-
-  # 5. The same review, with the sign error a human would actually make.
   call am_verify_equal  '{"left":"(a*(t - tref))^2 + b*(t - tref) + c","right":"a^2*t^2 - 2*a^2*t*tref + a^2*tref^2 + b*t + b*tref + c"}'
+  call am_domain_check  '{"expression":"sqrt(v - vref) / (t - tref)"}'
 
-  # 6. "Solve the RC cutoff formula for R."
+  # ---- deriving something new -----------------------------------------------------------
+  call am_differentiate '{"expression":"sqrt(x^2 + y^2)","variable":"x"}'
   call am_solve         '{"constraints":["f = 1/(2*pi*R*C)"],"variable":"R"}'
+  call am_solve         '{"constraints":["v = k*d^2 + m*d","d > 0"],"variable":"d"}'
+  call am_integrate     '{"expression":"x^6-4*x^5+5*x^4-4*x^2+4-4/(1+x^2)","variable":"x","from":"0","to":"1"}'
 
-  # 7. Invert a calibration curve: given the reading, recover the input.
-  call am_solve         '{"constraints":["v = k*d^2 + m*d"],"variable":"d"}'
+  # ---- approximating it, then putting it on a processor ----------------------------------
+  call am_series        '{"expression":"sin(x)","variable":"x","degree":7}'
+  call am_compare_numeric '{"reference":"sin(x)","approximation":"x - x^3/6 + x^5/120","variable":"x","from":0,"to":1.5,"samples":200}'
+  call am_represent     '{"operation":"fixed_point","value":"1/6","fraction_bits":15,"total_bits":16}'
+  call am_represent     '{"operation":"ieee754","value":"0.1"}'
 
-  # 8. Firmware branch logic: when does this guard actually fire?
+  # ---- signals, and linear algebra --------------------------------------------------------
+  call am_represent     '{"operation":"polar","value":"-1 - i"}'
+  call am_eigenvalues   '{"matrix":[["0","J"],["J","0"]]}'
+  call am_matrix        '{"operation":"tensor_product","matrix":[["1/sqrt(2)","1/sqrt(2)"],["1/sqrt(2)","-1/sqrt(2)"]],"matrix_b":[["1","0"],["0","1"]]}'
+
+  # ---- everyday checks ---------------------------------------------------------------------
   call am_truth_table   '{"expression":"(ready and not fault) or override","variables":["ready","fault","override"]}'
-
-  # 9. Exact expected value for a unit test, rather than a float the model guessed.
   call am_evaluate      '{"expression":"sin(pi/3) + cos(pi/6)"}'
 
-  # 10. A small-signal linearisation: first-order Taylor term via the derivative at a point.
-  call am_evaluate      '{"expression":"derivative(sqrt(1 + x), x)","substitutions":{"x":"0"}}'
-
-  # 11. The trap, in the shape it actually appears: a reference temperature named `t0`.
-  #     The parse silently becomes t^0 = 1. The warning is the only thing standing between
-  #     the caller and a confident wrong answer.
+  # ---- the trap ---------------------------------------------------------------------------
   call am_parse         '{"expression":"a*(t - t0)^2 + c"}'
 
-} | timeout 300 "$BIN" 2>/dev/null | python3 "$ROOT/test/scenarios.py"
+} | timeout 400 "$BIN" 2>/dev/null | python3 "$ROOT/test/scenarios.py"

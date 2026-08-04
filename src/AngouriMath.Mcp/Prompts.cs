@@ -112,6 +112,55 @@ public static class Prompts
                 {Discipline}
                 """),
 
+        new("analyse-approximation",
+            "Work out whether a fast approximation is sound and where it stops being good enough.",
+            [
+                new("exact", "The exact expression, e.g. '1/sqrt(x)'.", true),
+                new("approximation",
+                    "The fast form, or one iteration of it, e.g. 'y*(3 - x*y^2)/2'.", true),
+                new("variable", "The variable, e.g. 'x'.", true),
+                new("range", "Operating range as 'from,to', e.g. '1,4'. Optional.", false),
+            ],
+            get => $"""
+                A fast approximation is being used in place of an exact expression.
+
+                    exact:         {get("exact")}
+                    approximation: {get("approximation")}
+                    variable:      {get("variable")}
+                    range:         {Or(get("range"), "not stated — ask, or say what you assumed")}
+
+                Work out whether it is sound, in this order:
+
+                1. **Is the iteration what it claims to be?** If the approximation is an
+                   iterative refinement, it is probably Newton's method for some f. Work out
+                   which f, then use `am_verify_equal` to confirm the update rule really is
+                   `y - f(y)/f'(y)` for it. If it is not Newton, say what it is instead.
+
+                2. **Derive the error term, do not guess it.** Substitute a perturbed value —
+                   for a reciprocal-root style iteration that means `y = (1+e)/sqrt(x)` — with
+                   `am_substitute`, then use `am_verify_equal` to pin the new error against
+                   your candidate expression. The leading power of `e` is the order of
+                   convergence, and that is the number that decides how many iterations are
+                   needed. Quadratic means one iteration roughly squares the error.
+
+                3. **Measure it.** Use `am_compare_numeric` across the range to get the worst
+                   absolute and relative error and, more usefully, WHERE they occur. Sampling
+                   says nothing between samples, so if the error curve could have a spike,
+                   raise the sample count and say you did.
+
+                4. **Account for the constants.** If a magic constant or a bit pattern is
+                   involved, decompose it with `am_represent ieee754` and explain what it does
+                   rather than repeating that it is magic. If the result is destined for fixed
+                   point, run `am_represent fixed_point` and include the quantisation error
+                   alongside the approximation error — they add up, and the smaller one is
+                   often not the one people worry about.
+
+                Finish with a judgement: how many iterations for a stated tolerance, and the
+                input range over which that holds. If the approximation is unsound, or the
+                error is unbounded somewhere in range, lead with that.
+                {Discipline}
+                """),
+
         new("solve-with-constraints",
             "Solve an equation and keep only the physically meaningful branch.",
             [

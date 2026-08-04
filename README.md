@@ -22,7 +22,7 @@ AngouriMath itself.
 ```sh
 dotnet build -c Release src/AngouriMath.Mcp
 ./test/smoke.sh                      # end-to-end over real stdio JSON-RPC
-./test/scenarios.sh                  # the use-cases below, run for real
+./test/scenarios.sh                  # 20 use-cases, run for real; nothing asserted, read it
 ```
 
 **Which AngouriMath it builds against matters.** If a sibling checkout exists at
@@ -139,6 +139,7 @@ nothing in tool-list context, which matters at twenty-two tools.
 | `verify-derivation` | Checks your working step by step and names the one that broke. |
 | `check-formula` | Documented formula vs the expression actually in the code. |
 | `derive-jacobian` | Partials with respect to each state variable, each verified. |
+| `analyse-approximation` | Is a fast approximation sound, and where does it stop being good enough? |
 | `solve-with-constraints` | Solves, then keeps only the physically meaningful branch. |
 
 Each embeds the same discipline: read the `parsed` field, treat `declined` as no answer, stop
