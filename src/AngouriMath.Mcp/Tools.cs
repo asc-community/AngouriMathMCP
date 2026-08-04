@@ -311,6 +311,35 @@ public static class Tools
                 },
             }, "matrix")),
 
+        Tool("am_compare_numeric",
+            "Measure how far apart two expressions are across an interval: worst absolute " +
+            "error, worst relative error, RMS, and WHERE the worst point is. Use this for " +
+            "'is this approximation good enough over the operating range' — a different " +
+            "question from am_verify_equal, which asks whether two forms are the same " +
+            "function. An approximation is never equal; the question is whether it is close " +
+            "enough, and where it degrades.",
+            Schema(new JsonObject
+            {
+                ["reference"] = Str("The exact expression, used as the baseline."),
+                ["approximation"] = Str("The expression being checked against it."),
+                ["variable"] = Str("Variable to sweep."),
+                ["from"] = new JsonObject
+                {
+                    ["type"] = "number",
+                    ["description"] = "Start of the interval.",
+                },
+                ["to"] = new JsonObject
+                {
+                    ["type"] = "number",
+                    ["description"] = "End of the interval.",
+                },
+                ["samples"] = new JsonObject
+                {
+                    ["type"] = "integer",
+                    ["description"] = "Evenly spaced sample count, 2-10000. Default 200.",
+                },
+            }, "reference", "approximation", "variable", "from", "to")),
+
         Tool("am_substitute",
             "Replace variables with expressions and return the result WITHOUT evaluating or " +
             "simplifying it. Use this when you want to see the shape of a substitution — " +
@@ -418,6 +447,7 @@ public static class Tools
         "am_base_convert" => BaseConvert(args),
         "am_matrix" => MatrixOp(args),
         "am_eigenvalues" => Eigenvalues(args),
+        "am_compare_numeric" => CompareNumeric(args),
         "am_substitute" => Substitute(args),
         "am_expand" => Rewrite(args, expand: true),
         "am_factor" => Rewrite(args, expand: false),
@@ -1385,6 +1415,83 @@ public static class Tools
             if (parsed.Warnings.Count > 0) response["warnings"] = Warn(parsed.Warnings);
             return response;
         });
+    }
+
+    private static JsonObject CompareNumeric(JsonObject args)
+    {
+        if (!TryParse(S(args, "reference"), "reference", false,
+                out var reference, out var warnings, out var referenceError))
+            return referenceError!;
+        if (!TryParse(S(args, "approximation"), "approximation", false,
+                out var approximation, out var moreWarnings, out var approximationError))
+            return approximationError!;
+        warnings.AddRange(moreWarnings);
+
+        var variable = S(args, "variable");
+        if (string.IsNullOrWhiteSpace(variable)) return Fail("'variable' is required");
+
+        if (!args.TryGetPropertyValue("from", out var f) || f is null) return Fail("'from' is required");
+        if (!args.TryGetPropertyValue("to", out var t) || t is null) return Fail("'to' is required");
+        var from = f.GetValue<double>();
+        var to = t.GetValue<double>();
+        if (double.IsNaN(from) || double.IsNaN(to)) return Fail("'from' and 'to' must be numbers");
+        if (to < from) return Fail("'to' must not be less than 'from'");
+
+        var samples = args.TryGetPropertyValue("samples", out var s) && s is not null
+            ? s.GetValue<int>() : 200;
+        if (samples is < 2 or > 10000) return Fail("'samples' must be between 2 and 10000");
+
+        return FromOutcome(
+            Guard.Run(() => Numeric.Diverge(reference, approximation, Var(variable!),
+                from, to, samples)),
+            divergence =>
+            {
+                if (divergence is null)
+                    return new JsonObject
+                    {
+                        ["status"] = "declined",
+                        ["note"] = "Neither expression could be evaluated at any sample " +
+                            "point in that interval. Check for free variables other than " +
+                            $"'{variable}', or an interval where both are undefined.",
+                    };
+
+                var response = new JsonObject
+                {
+                    ["status"] = "solved",
+                    ["interval"] = $"[{from}, {to}]",
+                    ["samples_used"] = divergence.Sampled,
+                    ["samples_skipped"] = divergence.Skipped,
+                    ["max_absolute_error"] = divergence.MaxAbsolute,
+                    ["max_absolute_error_at"] = divergence.MaxAbsoluteAt,
+                    ["max_relative_error"] = divergence.MaxRelative,
+                    ["max_relative_error_at"] = divergence.MaxRelativeAt,
+                    ["rms_error"] = divergence.RootMeanSquare,
+                    ["samples_complex"] = divergence.Complex,
+                };
+
+                if (divergence.Complex > 0)
+                    response["complex_note"] =
+                        $"{divergence.Complex} of {divergence.Sampled} evaluated points were " +
+                        "NOT real — a logarithm or even root took its principal branch on a " +
+                        "negative argument. The errors above compare complex magnitudes, " +
+                        "which is probably not what you meant if this stands for a physical " +
+                        "quantity. Narrow the interval, or run am_domain_check first.";
+
+                if (divergence.Skipped > 0)
+                    response["skipped_note"] =
+                        $"{divergence.Skipped} of {samples} points were undefined for one " +
+                        "side or the other and were excluded. A large count here means the " +
+                        "interval crosses a singularity or leaves the reals — the error " +
+                        "figures describe only the part that was evaluable.";
+
+                response["interpretation_note"] =
+                    "Sampling proves nothing between the samples. A smooth approximation is " +
+                    "well characterised by this; one with a narrow spike is not. Raise " +
+                    "'samples', or use am_domain_check to find where the reference misbehaves.";
+
+                if (warnings.Count > 0) response["warnings"] = Warn(warnings);
+                return response;
+            });
     }
 
     private static JsonObject Substitute(JsonObject args)

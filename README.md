@@ -72,8 +72,20 @@ project only. Remove with `claude mcp remove angourimath --scope user`.
 same shape — a `command` pointing at the executable, with no `args` or `env`. Use an
 absolute path: stdio servers are launched from an unspecified working directory.
 
-**Verify without a client**, which is often the fastest way to tell whether a problem is
-yours or the host's:
+**Check the install** — this also reports whether the library still behaves the way the
+docs here claim, which is how documentation drift gets caught:
+
+```sh
+src/AngouriMath.Mcp/bin/Release/net10.0/angourimath-mcp --selftest
+```
+
+It verifies eleven identities (Euler, Machin, the golden ratio, 42 three ways, an integral
+round-trip) and re-checks each documented defect. Identity failures set a non-zero exit code;
+a defect that *stops* reproducing is reported as drift, because that means these docs need
+editing rather than that anything is broken.
+
+**Verify the protocol without a client**, which is often the fastest way to tell whether a
+problem is yours or the host's:
 
 ```sh
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
@@ -109,6 +121,7 @@ makes it get called.
 | `am_matrix` | Determinant, inverse, transpose, rank, RREF, trace, multiply, tensor product, power. |
 | `am_eigenvalues` | Exact eigenvalues via the characteristic polynomial, symbolic entries allowed. |
 | `am_substitute` | Plug in without evaluating — see the shape, not a number. |
+| `am_compare_numeric` | Worst / RMS error of an approximation across an interval, and where. |
 | `am_expand` / `am_factor` | Brackets out, or back into a product. |
 | `am_series` | Taylor / Maclaurin to a given degree. |
 | `am_number_theory` | Factorisation, totient, gcd, divisor count, primality. |

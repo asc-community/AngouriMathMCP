@@ -12,6 +12,23 @@ using AngouriMath.Mcp;
 // fix at this scale.
 
 Console.OutputEncoding = new UTF8Encoding(false);
+
+// `--selftest` answers "does this install work, and does the library still behave the way
+// the docs claim?" without the caller needing to know test/smoke.sh exists. It exits rather
+// than serving, so it never interferes with the protocol.
+if (args.Contains("--selftest"))
+    return SelfTest.Run(Console.Out);
+
+if (args.Contains("--help") || args.Contains("-h"))
+{
+    Console.WriteLine("angourimath-mcp — exact symbolic algebra over MCP (stdio JSON-RPC).");
+    Console.WriteLine();
+    Console.WriteLine("  (no arguments)  serve on stdin/stdout");
+    Console.WriteLine("  --selftest      verify the install and check the docs for drift");
+    Console.WriteLine("  --help          this message");
+    return 0;
+}
+
 var stdout = Console.Out;
 
 var serializerOptions = new JsonSerializerOptions { WriteIndented = false };
@@ -63,6 +80,9 @@ while ((line = Console.In.ReadLine()) is not null)
         if (!isNotification) Send(Error(id, -32603, $"{e.GetType().Name}: {e.Message}"));
     }
 }
+
+// stdin closed: the host has gone away, which is a normal shutdown.
+return 0;
 
 JsonObject? Dispatch(string method, JsonObject? parameters)
 {

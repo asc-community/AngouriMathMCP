@@ -29,6 +29,7 @@ LABELS = [
     ("Maclaurin sin(x) deg 7", "contains:120"),
     ("factorize 5040", "contains:2^4"),
     ("substitute x := t - t_0     (structural)", "contains:t - t_0"),
+    ("compare sin(x) vs 2-term Taylor", "status:solved"),
     ("resources/list", None),
     ("prompts/list", None),
 ]

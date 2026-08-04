@@ -54,6 +54,7 @@ call() { # name, json-args
   call am_number_theory '{"operation":"factorize","value":"5040"}'
 
   call am_substitute    '{"expression":"a*x^2 + b*x + c","substitutions":{"x":"t - t_0"}}'
+  call am_compare_numeric '{"reference":"sin(x)","approximation":"x - x^3/6","variable":"x","from":0,"to":1,"samples":50}'
 
   printf '{"jsonrpc":"2.0","id":99,"method":"resources/list","params":{}}\n'
   printf '{"jsonrpc":"2.0","id":98,"method":"prompts/list","params":{}}\n'

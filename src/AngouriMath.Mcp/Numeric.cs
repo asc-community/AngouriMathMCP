@@ -85,6 +85,87 @@ public static class Numeric
         return usable == 0 ? null : true;
     }
 
+    public sealed record Divergence(
+        double MaxAbsolute, string MaxAbsoluteAt,
+        double MaxRelative, string MaxRelativeAt,
+        double RootMeanSquare, int Sampled, int Skipped, int Complex);
+
+    /// <summary>
+    /// How far apart are two expressions across an interval?
+    ///
+    /// A different question from <see cref="Equal"/>, and the one engineering actually asks:
+    /// not "is this approximation exact" — it is not — but "does it hold to 1e-6 across the
+    /// operating range, and where is it worst".
+    /// </summary>
+    public static Divergence? Diverge(
+        Entity left, Entity right, Variable variable, double from, double to, int samples)
+    {
+        var a = Strip(left);
+        var b = Strip(right);
+
+        var maxAbsolute = -1.0; var maxAbsoluteAt = "";
+        var maxRelative = -1.0; var maxRelativeAt = "";
+        var sumOfSquares = 0.0;
+        int used = 0, skipped = 0, complex = 0;
+
+        var step = samples > 1 ? (to - from) / (samples - 1) : 0.0;
+
+        for (var i = 0; i < samples; i++)
+        {
+            var at = samples > 1 ? from + step * i : from;
+            Entity point = at.ToString("R");
+
+            var valueA = AsDouble(a.Substitute(variable, point));
+            var valueB = AsDouble(b.Substitute(variable, point));
+
+            // A point where either side is undefined says nothing about agreement, so it is
+            // counted and skipped rather than scored as a mismatch.
+            if (valueA is null || valueB is null) { skipped++; continue; }
+
+            // ln and even roots return principal-branch complex values on the negatives
+            // rather than failing. Comparing their magnitudes is defensible, but a caller
+            // asking about a physical quantity needs to know the reference left the reals.
+            if (Math.Abs(valueA.Value.Imaginary) > 1e-12 ||
+                Math.Abs(valueB.Value.Imaginary) > 1e-12) complex++;
+
+            var difference = Math.Sqrt(
+                Math.Pow(valueA.Value.Real - valueB.Value.Real, 2) +
+                Math.Pow(valueA.Value.Imaginary - valueB.Value.Imaginary, 2));
+
+            var magnitude = Math.Sqrt(
+                valueA.Value.Real * valueA.Value.Real +
+                valueA.Value.Imaginary * valueA.Value.Imaginary);
+
+            if (difference > maxAbsolute)
+            {
+                maxAbsolute = difference;
+                maxAbsoluteAt = at.ToString("R");
+            }
+
+            // Relative error is meaningless where the reference is ~0, so it is scored only
+            // where there is something to be relative to.
+            if (magnitude > 1e-12)
+            {
+                var relative = difference / magnitude;
+                if (relative > maxRelative)
+                {
+                    maxRelative = relative;
+                    maxRelativeAt = at.ToString("R");
+                }
+            }
+
+            sumOfSquares += difference * difference;
+            used++;
+        }
+
+        if (used == 0) return null;
+
+        return new Divergence(
+            maxAbsolute, maxAbsoluteAt,
+            maxRelative < 0 ? 0 : maxRelative, maxRelativeAt,
+            Math.Sqrt(sumOfSquares / used), used, skipped, complex);
+    }
+
     public static Entity Strip(Entity e) =>
         e.Replace(node => node is Providedf provided ? provided.Expression : node);
 
