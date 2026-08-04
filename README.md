@@ -14,6 +14,7 @@ parsed. The model has no ego about being checked.
 ```sh
 dotnet build -c Release src/AngouriMath.Mcp
 ./test/smoke.sh                      # end-to-end over real stdio JSON-RPC
+./test/scenarios.sh                  # the use-cases below, run for real
 ```
 
 Register it (Claude Code):
@@ -74,6 +75,31 @@ rather than killed on timeout. Cancellation cannot rescue a stack overflow — o
 master `∫ x*ln(x)` overflows inside `IntegrateByPartsPolynomial` and takes the process with
 it — so the big stack is the second line of defence. Same approach as `work/casbench`.
 
+## Use cases
+
+`./test/scenarios.sh` runs these for real. The ones that earn their keep:
+
+**Checking the model's own algebra.** `∫ x·e^x dx = e^x(x−1)` — confirmed exactly. Change it
+to `e^x(x+1)` and the answer comes back with `difference: 2 * e^x`, which names the error
+rather than just rejecting the claim. This is the case models will actually accept a tool for,
+because being checked costs them nothing.
+
+**Firmware code review.** A calibration polynomial expanded by hand, versus the derivation in
+the comment above it: `(a(t−t_ref))² + b(t−t_ref) + c` against the expanded form in the code.
+Equal, exactly. Flip one sign — `+b·t_ref` instead of `−b·t_ref` — and the difference comes
+back as `-2·b·t_ref`, pointing straight at the term. No reviewer catches that by eye.
+
+**Jacobians for sensor fusion.** `∂/∂x √(x²+y²)` and `∂/∂y`, for an EKF measurement row.
+Hand-derived Jacobians are where silent errors live for months.
+
+**Solving design formulas.** `f = 1/(2πRC)` for `R` → `1/2 / (C·f·pi)`. Inverting a
+calibration curve `v = k·d² + m·d` for `d` gives both quadratic branches.
+
+**Branch logic.** `(ready and not fault) or override` — all five satisfying assignments
+enumerated, which is how you find the case you didn't think about.
+
+**Exact test oracles.** `sin(π/3) + cos(π/6)` → `sqrt(3)`, not a float the model guessed.
+
 ## Two findings from building this
 
 **`AreEqualNumerically` is exact, not tolerant.** Despite the name,
@@ -103,6 +129,9 @@ Both are why `am_integrate` reports `verified: true` for `∫ x*ln(x)` rather th
   in well under the budget on this branch, so the guard is exercised only by construction.
 - **LaTeX is output only.** There is no LaTeX parser; convert `\frac{a}{b}` to `a/b` first.
 - Nonlinear systems can return nothing even when a solution exists (upstream issue #629).
+- In `am_solve`, `solutions[]` is tidied per root but the raw `result` string is not, so the
+  two can disagree cosmetically (`1/2 / (C*f*pi)` vs `--1/2 * 1/pi * 1/C/f`). Prefer
+  `solutions[]`.
 - `Simplify` on multivariate rational functions returns the input unreduced and silent —
   reported as `unchanged`, which means "no progress", not "already simplest".
 

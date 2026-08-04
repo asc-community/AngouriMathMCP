@@ -403,7 +403,17 @@ public static class Tools
             if (set is Set.FiniteSet finite)
             {
                 var roots = new JsonArray();
-                foreach (var root in finite) roots.Add(root.Stringize());
+                foreach (var root in finite)
+                {
+                    // Solve leaves roots in raw form: solving f = 1/(2*pi*R*C) for R yields
+                    // "--1/2 * 1/pi * 1/C/f". Correct, but a double negation is exactly the
+                    // output-tidiness weakness the library is known for, so tidy each root.
+                    // Guarded because Simplify can be slow and must not lose the answer.
+                    Entity tidy;
+                    try { tidy = root.Simplify(); }
+                    catch { tidy = root; }
+                    roots.Add(tidy.Stringize());
+                }
                 response["solutions"] = roots;
                 response["solution_count"] = finite.Count;
             }
@@ -536,6 +546,7 @@ public static class Tools
                 out var e, out var warnings, out var error))
             return error!;
 
+        var substitutions = new List<(string Name, Entity Value)>();
         if (args.TryGetPropertyValue("substitutions", out var subsNode) && subsNode is JsonObject subs)
         {
             foreach (var (key, value) in subs)
@@ -544,20 +555,31 @@ public static class Tools
                 if (!TryParse(value.GetValue<string>(), $"substitutions.{key}", false,
                         out var replacement, out _, out var subError))
                     return subError!;
-                e = e.Substitute(Var(key), replacement);
+                substitutions.Add((key, replacement));
             }
         }
 
         var input = e;
         return FromOutcome(Guard.Run(() =>
         {
-            var exact = input.Evaled;
+            // Resolve calculus nodes BEFORE substituting. Substituting into
+            // derivative(f(x), x) cannot work — x is bound there — so `d/dx sqrt(1+x) at
+            // x=0` silently came back with x still free. Differentiate first, then plug in.
+            var resolved = input.InnerSimplified;
+            foreach (var (name, value) in substitutions)
+                resolved = resolved.Substitute(Var(name), value);
+
+            // Simplify, not Evaled: Evaled numericises aggressively, turning
+            // sin(pi/3) + cos(pi/6) into a hundred decimal digits and throwing away the
+            // exact sqrt(3) that is the whole reason to use a CAS.
+            var exact = resolved.Simplify();
+
             string? approx = null;
-            if (input.EvaluableNumerical)
+            if (exact.EvaluableNumerical)
             {
-                var complex = input.EvalNumerical();
+                var complex = exact.EvalNumerical();
                 approx = complex.ImaginaryPart.EDecimal.IsZero
-                    ? complex.RealPart.Stringize()
+                    ? complex.RealPart.EDecimal.ToDouble().ToString("R")
                     : complex.Stringize();
             }
             return (exact, approx);
@@ -590,7 +612,13 @@ public static class Tools
             bool? wholeLine = null;
             if (!exactlyZero)
             {
-                try { numerically = Numeric.Equal(left, right); }
+                // Compare the DIFFERENCE against zero rather than the two sides against
+                // each other. Simplify has already collapsed any unevaluated derivative(…)
+                // or integral(…) node in the difference, whereas the raw sides may still
+                // contain one — and an unevaluated node is not numerically evaluable, so
+                // comparing the sides directly returns "inconclusive" for inputs that are
+                // in fact decidable.
+                try { numerically = Numeric.Equal(difference, 0); }
                 catch { numerically = null; }
 
                 // The positive-real points above cannot see a disagreement that only occurs
@@ -600,7 +628,7 @@ public static class Tools
                 {
                     try
                     {
-                        wholeLine = Numeric.Equal(left, right,
+                        wholeLine = Numeric.Equal(difference, 0,
                             ["-3.1", "-1.7", "-0.4", "0.8", "2.6"]);
                     }
                     catch { wholeLine = null; }
@@ -611,10 +639,15 @@ public static class Tools
         }), r =>
         {
             var equal = r.exactlyZero || r.numerically == true;
+            // Inconclusive is reported as null, never as false: "we could not check" is not
+            // the same claim as "they differ", and a caller acting on a bare false would be
+            // acting on something the server never established.
+            var conclusive = r.exactlyZero || r.numerically is not null;
+
             var response = new JsonObject
             {
-                ["status"] = "solved",
-                ["equal"] = equal,
+                ["status"] = conclusive ? "solved" : "inconclusive",
+                ["equal"] = conclusive ? equal : null,
                 ["method"] = r.exactlyZero
                     ? "exact: left - right simplified to 0"
                     : r.numerically is null
