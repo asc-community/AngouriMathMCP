@@ -1,4 +1,4 @@
-# angourimath-mcp
+# AngouriMathMCP
 
 An MCP server exposing [AngouriMath](https://github.com/asc-community/AngouriMath) — exact
 symbolic algebra — to an LLM agent. Prototype.
@@ -20,7 +20,7 @@ dotnet build -c Release src/AngouriMath.Mcp
 Register it (Claude Code):
 
 ```sh
-claude mcp add angourimath -- /abs/path/to/src/AngouriMath.Mcp/bin/Release/net10.0/angourimath-mcp
+claude mcp add angourimath -- /abs/path/to/AngouriMathMCP/src/AngouriMath.Mcp/bin/Release/net10.0/angourimath-mcp
 ```
 
 Speaks newline-delimited JSON-RPC 2.0 on stdin/stdout, protocol revision `2024-11-05`. No
@@ -184,3 +184,11 @@ load-bearing. On the corpus in `work/`, this branch scores **111/117 with 0 wron
 to `0`, and `FastExpression` was thread-unsafe until #637 (16 threads × 400k calls produced
 one silently wrong number with no exception, and permanent corruption afterwards). A server
 built on the published package would inherit all of it.
+
+## Naming
+
+The repo is `AngouriMathMCP`, matching `AngouriMath` and `AngouriMathCLI`. The lowercase
+convention seen on most published MCP servers comes from npm — which forbids uppercase in
+package names — and PyPI, which normalises to lowercase; it is a packaging constraint, not
+an MCP one, and does not apply to a .NET repo. The executable stays lowercase
+(`angourimath-mcp`), since that is what goes in a client config and what people type.
