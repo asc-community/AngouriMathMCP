@@ -144,6 +144,13 @@ public static class Tools
                     ["additionalProperties"] = new JsonObject { ["type"] = "string" },
                     ["description"] = "Optional map of variable -> value, e.g. {\"x\": \"2\"}.",
                 },
+                ["digits"] = new JsonObject
+                {
+                    ["type"] = "integer",
+                    ["description"] = "Significant digits for the numeric result, 1-1000. " +
+                        "Omit for a normal double. Raise it when the question turns on the " +
+                        "tail — e^(pi*sqrt(163)) only looks like an integer until digit 18.",
+                },
             }, "expression")),
 
         Tool("am_verify_equal",
@@ -606,9 +613,22 @@ public static class Tools
             }
         }
 
+        var digits = args.TryGetPropertyValue("digits", out var d) && d is not null
+            ? d.GetValue<int>() : 0;
+        if (digits is < 0 or > 1000) return Fail("'digits' must be between 1 and 1000");
+
         var input = e;
         return FromOutcome(Guard.Run(() =>
         {
+            // Widen the library's working precision for this call only. Without it the
+            // answer is computed at the default context and no amount of formatting can
+            // recover digits that were never computed.
+            var context = digits > 0
+                ? new PeterO.Numbers.EContext(digits, PeterO.Numbers.ERounding.HalfEven,
+                    -int.MaxValue, int.MaxValue, false)
+                : MathS.Settings.DecimalPrecisionContext.Value;
+            using var precision = MathS.Settings.DecimalPrecisionContext.Set(context);
+
             // Resolve calculus nodes BEFORE substituting. Substituting into
             // derivative(f(x), x) cannot work — x is bound there — so `d/dx sqrt(1+x) at
             // x=0` silently came back with x still free. Differentiate first, then plug in.
@@ -625,9 +645,12 @@ public static class Tools
             if (exact.EvaluableNumerical)
             {
                 var complex = exact.EvalNumerical();
-                approx = complex.ImaginaryPart.EDecimal.IsZero
-                    ? complex.RealPart.EDecimal.ToDouble().ToString("R")
-                    : complex.Stringize();
+                approx = !complex.ImaginaryPart.EDecimal.IsZero
+                    ? complex.Stringize()
+                    : digits > 0
+                        // Full computed precision, not a double — the whole point of asking.
+                        ? complex.RealPart.EDecimal.ToString()
+                        : complex.RealPart.EDecimal.ToDouble().ToString("R");
             }
             return (exact, approx);
         }), r =>
