@@ -192,6 +192,50 @@ public static class Tools
                 },
             }, "equations", "variables")),
 
+        Tool("am_check_steps",
+            "Check a chain of working step by step and report WHICH step broke. Use this to " +
+            "present a derivation: write out your steps, have them checked, then explain " +
+            "them. AngouriMath cannot generate a derivation — but you can, and this makes " +
+            "yours trustworthy. Each consecutive pair must be mathematically equal.",
+            Schema(new JsonObject
+            {
+                ["steps"] = new JsonObject
+                {
+                    ["type"] = "array",
+                    ["items"] = new JsonObject { ["type"] = "string" },
+                    ["description"] = "Successive forms of the SAME expression, in order, " +
+                                      "e.g. ['(x+1)^2 - 1', 'x^2 + 2*x + 1 - 1', 'x^2 + 2*x'].",
+                },
+            }, "steps")),
+
+        Tool("am_domain_check",
+            "Find what to watch out for in an expression: the domain conditions AngouriMath " +
+            "derived, the structural hazards (division, logs, fractional powers, inverse " +
+            "trig), and the sample points where it stops being a real number. Use this " +
+            "before trusting a result as a physical quantity — a value can be perfectly " +
+            "correct and still be meaningless as a length, a time or a resistance.",
+            Schema(new JsonObject
+            {
+                ["expression"] = Str("Expression to inspect."),
+            }, "expression")),
+
+        Tool("am_base_convert",
+            "Convert a number between bases. Handles repeating expansions.",
+            Schema(new JsonObject
+            {
+                ["value"] = Str("The number, as text, e.g. '54' or '0.125'."),
+                ["from_base"] = new JsonObject
+                {
+                    ["type"] = "integer",
+                    ["description"] = "Base of the input. Default 10.",
+                },
+                ["to_base"] = new JsonObject
+                {
+                    ["type"] = "integer",
+                    ["description"] = "Base to convert to.",
+                },
+            }, "value", "to_base")),
+
         Tool("am_to_sympy",
             "Emit a runnable SymPy program for an expression. Use this to hand the problem to " +
             "Python, or to cross-check a result against a second computer algebra system.",
@@ -213,6 +257,9 @@ public static class Tools
         "am_verify_equal" => VerifyEqual(args),
         "am_truth_table" => TruthTable(args),
         "am_solve_system" => SolveSystem(args),
+        "am_check_steps" => CheckSteps(args),
+        "am_domain_check" => DomainCheck(args),
+        "am_base_convert" => BaseConvert(args),
         "am_to_sympy" => ToSympy(args),
         _ => Fail($"unknown tool '{name}'"),
     };
@@ -610,6 +657,24 @@ public static class Tools
 
             bool? numerically = null;
             bool? wholeLine = null;
+
+            // Trust, then verify the verifier. The exact path believes Simplify, and Simplify
+            // can be unsound: it reduces sqrt(x^2) to x, so `sqrt(x^2) = x` comes back
+            // "exact: difference simplified to 0" — while the library's own evaluator gives
+            // sqrt(x^2) = 2 at x = -2. Sampling the ORIGINAL sides across the real line
+            // catches a bad simplification, because it never goes through one.
+            bool? conflict = null;
+            if (exactlyZero)
+            {
+                try
+                {
+                    var direct = Numeric.Equal(left, right,
+                        ["-3.1", "-1.7", "-0.4", "0.8", "2.6"]);
+                    if (direct == false) conflict = true;
+                }
+                catch { /* no counter-evidence available */ }
+            }
+
             if (!exactlyZero)
             {
                 // Compare the DIFFERENCE against zero rather than the two sides against
@@ -635,7 +700,7 @@ public static class Tools
                 }
             }
 
-            return (difference, exactlyZero, numerically, wholeLine);
+            return (difference, exactlyZero, numerically, wholeLine, conflict);
         }), r =>
         {
             var equal = r.exactlyZero || r.numerically == true;
@@ -664,7 +729,20 @@ public static class Tools
                 ["warnings"] = Warn([.. lw, .. rw]),
             };
 
-            if (equal && r.wholeLine == false)
+            if (r.conflict == true)
+            {
+                response["status"] = "conflict";
+                response["equal"] = false;
+                response["conflict"] = true;
+                response["note"] =
+                    "Symbolic simplification says these are equal, but evaluating the two " +
+                    "sides directly disagrees at sampled points on the real line. The " +
+                    "direct evaluation is the more trustworthy of the two, since it does " +
+                    "not pass through a rewrite. Treat them as NOT equal, and treat the " +
+                    "simplification as suspect — sqrt(x^2) reducing to x rather than abs(x) " +
+                    "is a known instance.";
+            }
+            else if (equal && r.wholeLine == false)
             {
                 response["equal_only_on_positive_reals"] = true;
                 response["note"] =
@@ -760,6 +838,149 @@ public static class Tools
 
             if (warnings.Count > 0) response["warnings"] = Warn(warnings);
             return response;
+        });
+    }
+
+    private static JsonObject CheckSteps(JsonObject args)
+    {
+        var raw = A(args, "steps");
+        if (raw.Count < 2) return Fail("'steps' needs at least two entries to compare");
+
+        var steps = new List<Entity>();
+        var warnings = new List<string>();
+        foreach (var step in raw)
+        {
+            if (!TryParse(step, "steps", false, out var e, out var w, out var error))
+                return error!;
+            steps.Add(e);
+            warnings.AddRange(w);
+        }
+
+        return FromOutcome(Guard.Run(() => Analysis.CheckSteps(steps)), checks =>
+        {
+            var rows = new JsonArray();
+            int? firstBad = null;
+
+            foreach (var check in checks)
+            {
+                rows.Add(new JsonObject
+                {
+                    ["step"] = check.Index,
+                    ["from"] = check.From,
+                    ["to"] = check.To,
+                    ["equal"] = check.Equal,
+                    ["method"] = check.Method,
+                    ["difference"] = check.Difference,
+                });
+                if (firstBad is null && check.Equal == false) firstBad = check.Index;
+            }
+
+            var response = new JsonObject
+            {
+                ["status"] = "solved",
+                ["all_steps_valid"] = firstBad is null,
+                ["first_invalid_step"] = firstBad,
+                ["steps"] = rows,
+                ["note"] = firstBad is null
+                    ? "Every step preserves the value. The working is sound — note this " +
+                      "checks equality, not whether the steps are the clearest route."
+                    : $"Step {firstBad} changes the value. Everything before it is sound, " +
+                      "so the error is introduced exactly there.",
+            };
+            if (warnings.Count > 0) response["warnings"] = Warn(warnings);
+            return response;
+        });
+    }
+
+    private static JsonObject DomainCheck(JsonObject args)
+    {
+        if (!TryParse(S(args, "expression"), "expression", false,
+                out var e, out var warnings, out var error))
+            return error!;
+
+        return FromOutcome(Guard.Run(() =>
+        {
+            Entity simplified;
+            try { simplified = e.Simplify(); }
+            catch { simplified = e; }
+
+            return (simplified,
+                    Analysis.Conditions(simplified),
+                    Analysis.Hazards(e),
+                    Analysis.Reality(e));
+        }), r =>
+        {
+            var conditions = new JsonArray();
+            foreach (var c in r.Item2) conditions.Add(c);
+
+            var hazards = new JsonArray();
+            foreach (var h in r.Item3)
+                hazards.Add(new JsonObject { ["in"] = h.Where, ["risk"] = h.Risk });
+
+            var complexAt = new JsonArray();
+            foreach (var p in r.Item4.ComplexAt) complexAt.Add(p);
+            var undefinedAt = new JsonArray();
+            foreach (var p in r.Item4.UndefinedAt) undefinedAt.Add(p);
+
+            var response = new JsonObject
+            {
+                ["status"] = "solved",
+                ["parsed"] = e.Stringize(),
+                ["simplified"] = r.simplified.Stringize(),
+                ["conditions"] = conditions,
+                ["hazards"] = hazards,
+                ["not_real_at"] = complexAt,
+                ["undefined_at"] = undefinedAt,
+                ["points_sampled"] = r.Item4.Sampled,
+            };
+
+            if (r.Item2.Count > 0)
+                response["conditions_note"] = "AngouriMath derived these guards itself. They " +
+                    "are part of the answer — dropping them makes the result wrong on the " +
+                    "excluded points.";
+
+            if (r.Item4.ComplexAt.Count > 0 || r.Item4.UndefinedAt.Count > 0)
+                response["reality_note"] = "The expression leaves the reals at some sampled " +
+                    "points. If it stands for a physical quantity, constrain the input " +
+                    "range before using it — pass the constraint to am_solve alongside the " +
+                    "equation.";
+
+            if (warnings.Count > 0) response["warnings"] = Warn(warnings);
+            return response;
+        });
+    }
+
+    private static JsonObject BaseConvert(JsonObject args)
+    {
+        var value = S(args, "value");
+        if (string.IsNullOrWhiteSpace(value)) return Fail("'value' is required");
+
+        var fromBase = args.TryGetPropertyValue("from_base", out var f) && f is not null
+            ? f.GetValue<int>() : 10;
+        if (!args.TryGetPropertyValue("to_base", out var t) || t is null)
+            return Fail("'to_base' is required");
+        var toBase = t.GetValue<int>();
+
+        if (fromBase is < 2 or > 36) return Fail("'from_base' must be between 2 and 36");
+        if (toBase is < 2 or > 36) return Fail("'to_base' must be between 2 and 36");
+
+        return FromOutcome(Guard.Run(() =>
+        {
+            var asDecimal = fromBase == 10
+                ? value!.ToEntity()
+                : MathS.FromBaseN(value!, fromBase);
+
+            var real = (Number.Real)asDecimal.Evaled;
+            var converted = toBase == 10 ? real.Stringize() : MathS.ToBaseN(real, toBase);
+            return (real, converted);
+        }), r => new JsonObject
+        {
+            ["status"] = "solved",
+            ["input"] = value,
+            ["from_base"] = fromBase,
+            ["to_base"] = toBase,
+            ["decimal"] = r.real.Stringize(),
+            ["result"] = r.converted,
         });
     }
 

@@ -40,6 +40,9 @@ external NuGet dependencies — only `System.Text.Json` and AngouriMath itself.
 | `am_verify_equal` | Check your own algebra: did you change the meaning? |
 | `am_truth_table` | Truth table plus satisfying assignments. |
 | `am_solve_system` | Accepts `x + y = 3` or `x + y - 3`. |
+| `am_check_steps` | Checks a chain of working and says *which* step broke. |
+| `am_domain_check` | Domain guards, structural hazards, and where it stops being real. |
+| `am_base_convert` | Between bases 2–36. |
 | `am_to_sympy` | Runnable SymPy program, for cross-checking. |
 
 Two resources are served: `angourimath://syntax` (including the parse traps below) and
@@ -99,6 +102,40 @@ calibration curve `v = k·d² + m·d` for `d` gives both quadratic branches.
 enumerated, which is how you find the case you didn't think about.
 
 **Exact test oracles.** `sin(π/3) + cos(π/6)` → `sqrt(3)`, not a float the model guessed.
+
+## Step-by-step, and knowing what to distrust
+
+**There is no step engine in AngouriMath** — no derivation output anywhere in the library. So
+`am_check_steps` inverts the problem: you write the steps, it checks each transition and names
+the one that broke. Feed it `['(x+1)^2 - 1', 'x^2 + 1 - 1', 'x^2']` and it reports step 1 as
+invalid with `difference: 2 * x` — the dropped cross term, located precisely. A model is good
+at proposing a derivation and unreliable at executing one; this puts each side on the job it
+can actually do.
+
+**`am_domain_check`** answers "what should I watch out for here?". For `sqrt(x-2)/(x-5)` it
+reports the division hazard, the principal-branch hazard, and the five sampled points where
+the expression is not real. For `ln(x) + ln(x+1)` it shows the simplification to `ln(x*(1+x))`
+— which is real at x = −2.7 while the original is not. That is the documented domain-widening
+that produces extraneous roots, made visible.
+
+**Correct but meaningless** is a constraint problem, not a math problem. The library cannot
+know that a length must be positive, but you can say so: `am_solve` takes a list of
+constraints, so `['v = k*d^2 + m*d', 'd > 0']` returns only the physical branch. Encode the
+physics as mathematics and the solver enforces it.
+
+## A soundness bug this found
+
+`Simplify(sqrt(x^2))` returns **`x`**. It should be `abs(x)`. The library then contradicts
+itself: evaluating `sqrt(x^2)` at `x = -2` correctly gives `2`, while the simplified form
+gives `-2`. This is the same class of error that `work/comparison.md` credits AngouriMath for
+*avoiding* relative to Math.NET — and it is not in `work/TRIAGE.md`.
+
+It also exposed a weakness in this server: `am_verify_equal`'s exact path trusts `Simplify`,
+so it initially reported `sqrt(x^2) = x` as **equal**. It now cross-checks the original two
+sides numerically across the real line whenever the exact path claims equality, and reports
+`status: conflict` when they disagree — because a direct evaluation never passes through a
+rewrite, so it is the better evidence. `sqrt(x^2)` vs `abs(x)` still returns equal, so the
+check discriminates rather than just objecting.
 
 ## Two findings from building this
 
