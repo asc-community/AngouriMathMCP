@@ -23,6 +23,15 @@ public static class Resources
         },
         new JsonObject
         {
+            ["uri"] = "angourimath://curiosities",
+            ["name"] = "Verified mathematical curiosities",
+            ["description"] = "Famous results and coincidences, each with the exact " +
+                              "expression to reproduce it on this server. Doubles as a " +
+                              "self-test corpus.",
+            ["mimeType"] = "text/markdown",
+        },
+        new JsonObject
+        {
             ["uri"] = "angourimath://reliability",
             ["name"] = "Measured reliability by problem class",
             ["description"] = "Which operations are trustworthy and which are known to " +
@@ -34,6 +43,7 @@ public static class Resources
     public static string? Read(string uri) => uri switch
     {
         "angourimath://syntax" => Syntax,
+        "angourimath://curiosities" => Curiosities,
         "angourimath://reliability" => Reliability,
         _ => null,
     };
@@ -91,6 +101,75 @@ public static class Resources
 
         LaTeX is OUTPUT only. This server cannot parse LaTeX input — convert
         `\frac{a}{b}` to `a/b` yourself before calling.
+        """;
+
+    private const string Curiosities = """
+        # Curiosities, each verified on this server
+
+        Every entry below was checked here, not copied from memory. The expression given is
+        exactly what to run — so this doubles as a self-test corpus. If one of these stops
+        reproducing, something regressed.
+
+        ## Exact identities
+
+        | Result | Run |
+        |---|---|
+        | Euler's identity, exactly 0 — not 1e-16 | `am_evaluate  e^(i*pi) + 1` |
+        | Machin's formula: how π was computed to 100 digits by hand in 1706 | `am_verify_equal  4*arctan(1/5) - arctan(1/239)  vs  pi/4` |
+        | Two arctans make a right angle's eighth | `am_verify_equal  arctan(1/2) + arctan(1/3)  vs  pi/4` |
+        | Golden ratio is a pentagon in disguise | `am_verify_equal  (1+sqrt(5))/2  vs  2*cos(pi/5)` |
+        | φ from its defining property | `am_solve  ['x^2 = x + 1', 'x > 0']  for x` |
+        | Ramanujan's taxicab: 1729 two ways | `am_verify_equal  1^3 + 12^3  vs  9^3 + 10^3` |
+
+        ## A machine-checked proof that 22/7 > π
+
+        The integrand is positive on (0,1), so the integral is positive — which proves the
+        inequality. It needs the polynomial division done by hand first, because the
+        integrator declines the unexpanded rational form:
+
+        1. `am_verify_equal  x^4*(1-x)^4/(1+x^2)  vs  x^6 - 4*x^5 + 5*x^4 - 4*x^2 + 4 - 4/(1+x^2)`
+        2. `am_integrate  x^6 - 4*x^5 + 5*x^4 - 4*x^2 + 4 - 4/(1+x^2)  dx`  (verifies)
+        3. `am_evaluate  1/7 - 4/6 + 1 - 4/3 + 4 - 4*arctan(1)`  → **exactly `22/7 - pi`**
+
+        ## Near misses — where floating point would lie to you
+
+        | Result | Run |
+        |---|---|
+        | Homer Simpson's Fermat counterexample. Agrees to **ten** significant figures — exactly a pocket calculator's width, which is the joke | `am_evaluate  3987^12 + 4365^12 - 4472^12` → 1211886809373872630985912112862690, not 0 |
+        | 42 as a sum of three cubes (Booker & Sutherland, 2019). Each term is ~5e50, so a double returns pure noise | `am_evaluate  (-80538738812075974)^3 + 80435758145817515^3 + 12602123297335631^3` → 42 |
+        | 355/113, the best simple approximation to π (Milü, 5th century) | `am_evaluate  355/113 - pi  digits 20` → 2.67e-7 |
+        | Ramanujan's quartic approximation to π | `am_evaluate  (2143/22)^(1/4) - pi  digits 20` → -1.01e-9 |
+        | One term of Ramanujan's 1/π series already gives 8 digits | `am_evaluate  9801/(2*sqrt(2)*1103) - pi  digits 20` → 7.6e-8 |
+        | e^π − π is almost exactly 20, for no known reason | `am_evaluate  e^pi - pi  digits 20` → 19.999099979189475768 |
+
+        ## 42
+
+        | Result | Run |
+        |---|---|
+        | Adams' "six by nine" is true in base 13 | `am_base_convert  54  to base 13` → 42 |
+        | 42 = 101010, a perfect alternating bit pattern | `am_base_convert  42  to base 2` |
+        | The 5th Catalan number — counts the ways to parenthesise six factors | `am_evaluate  10! / (6! * 5!)` |
+        | 6¹ + 6², and also the sum of the first six even numbers | `am_evaluate  6^1 + 6^2` |
+        | The rainbow really is at 42°: minimise deviation through a raindrop | `am_solve ['(4/3)^2 - 1 = 3*c^2','c > 0'] for c` → `sqrt(7/27)`, giving 42.03° |
+
+        ## Known to be WRONG here — do not quote these
+
+        - `e^(pi*sqrt(163))` (Ramanujan's constant) should be
+          `262537412640768743.99999999999925...`, sitting 7.5e-13 below an integer. This
+          build returns `...743.999996889...` — correct to only ~23 significant digits, and
+          stable at the wrong value, so it looks converged. Every component evaluates
+          correctly; only the composed form fails.
+        - `sqrt(x^2)` simplifies to `x` rather than `abs(x)`.
+
+        ## Beyond this server
+
+        No infinite series: there is no summation operator, so Basel (π²/6) and the Leibniz
+        series cannot be evaluated here. Worth knowing anyway — truncating Leibniz at
+        500,000 terms gives
+        `3.14159065358979324046264338326950` against π's
+        `3.14159265358979323846264338327950`: nearly every digit correct, with isolated
+        wrong ones. Those errors are not noise — they are the Euler numbers.
+
         """;
 
     private const string Reliability = """

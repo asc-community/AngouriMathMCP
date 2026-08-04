@@ -243,6 +243,16 @@ public static class Tools
                 },
             }, "value", "to_base")),
 
+        Tool("am_classify",
+            "Guess which field of science or mathematics a formula comes from, by reading " +
+            "its symbols and structure. Inference from naming convention only — 'c' is the " +
+            "speed of light in relativity and a concentration in chemistry — so treat the " +
+            "result as a hint, and say it is a guess when you repeat it.",
+            Schema(new JsonObject
+            {
+                ["expression"] = Str("Formula to classify, e.g. 'G*M*m/r^2'."),
+            }, "expression")),
+
         Tool("am_to_sympy",
             "Emit a runnable SymPy program for an expression. Use this to hand the problem to " +
             "Python, or to cross-check a result against a second computer algebra system.",
@@ -267,6 +277,7 @@ public static class Tools
         "am_check_steps" => CheckSteps(args),
         "am_domain_check" => DomainCheck(args),
         "am_base_convert" => BaseConvert(args),
+        "am_classify" => ClassifyFormula(args),
         "am_to_sympy" => ToSympy(args),
         _ => Fail($"unknown tool '{name}'"),
     };
@@ -1005,6 +1016,53 @@ public static class Tools
             ["decimal"] = r.real.Stringize(),
             ["result"] = r.converted,
         });
+    }
+
+    private static JsonObject ClassifyFormula(JsonObject args)
+    {
+        if (!TryParse(S(args, "expression"), "expression", false,
+                out var e, out var warnings, out var error))
+            return error!;
+
+        var (guesses, signatures, features) = Classify.Analyse(e);
+
+        var ranked = new JsonArray();
+        foreach (var g in guesses)
+            ranked.Add(new JsonObject
+            {
+                ["field"] = g.Field,
+                ["score"] = g.Score,
+                ["because"] = g.Because,
+            });
+
+        var recognised = new JsonArray();
+        foreach (var s in signatures) recognised.Add(s);
+
+        var observed = new JsonArray();
+        foreach (var f in features) observed.Add(f);
+
+        var symbols = new JsonArray();
+        foreach (var v in e.Vars) symbols.Add(v.Stringize());
+
+        var response = new JsonObject
+        {
+            ["status"] = "solved",
+            ["parsed"] = e.Stringize(),
+            ["symbols"] = symbols,
+            ["features"] = observed,
+            ["recognised_forms"] = recognised,
+            ["likely_fields"] = ranked,
+            ["caveat"] = "Inferred from symbol naming conventions, not from meaning. The " +
+                "same letter means different things in different fields; report this as a " +
+                "guess, not a fact.",
+        };
+
+        if (guesses.Count == 0)
+            response["note"] = "Nothing distinctive enough to guess from. The symbols are " +
+                "too generic, or the formula is pure mathematics with no domain markers.";
+
+        if (warnings.Count > 0) response["warnings"] = Warn(warnings);
+        return response;
     }
 
     private static JsonObject ToSympy(JsonObject args)
