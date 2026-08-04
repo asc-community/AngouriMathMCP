@@ -146,8 +146,8 @@ public static class Resources
 
         | Result | Run |
         |---|---|
-        | Adams' "six by nine" is true in base 13 | `am_base_convert  54  to base 13` → 42 |
-        | 42 = 101010, a perfect alternating bit pattern | `am_base_convert  42  to base 2` |
+        | Adams' "six by nine" is true in base 13 | `am_represent base 54 to_base 13` → 42 |
+        | 42 = 101010, a perfect alternating bit pattern | `am_represent base 42 to_base 2` |
         | The 5th Catalan number — counts the ways to parenthesise six factors | `am_evaluate  10! / (6! * 5!)` |
         | 6¹ + 6², and also the sum of the first six even numbers | `am_evaluate  6^1 + 6^2` |
         | The rainbow really is at 42°: minimise deviation through a raindrop | `am_solve ['(4/3)^2 - 1 = 3*c^2','c > 0'] for c` → `sqrt(7/27)`, giving 42.03° |

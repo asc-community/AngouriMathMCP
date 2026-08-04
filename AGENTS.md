@@ -12,7 +12,7 @@ Read `README.md` for what it does and `UPSTREAM.md` for what deliberately isn't 
 
 ```sh
 dotnet build -c Release src/AngouriMath.Mcp
-./test/smoke.sh          # 29 cases over real stdio JSON-RPC, 22 with assertions
+./test/smoke.sh          # 32 cases over real stdio JSON-RPC, 25 with assertions
 ./test/scenarios.sh      # 12 realistic use-cases; read the output, it is not asserted
 src/AngouriMath.Mcp/bin/Release/net10.0/angourimath-mcp --selftest
 ```

@@ -30,6 +30,9 @@ LABELS = [
     ("factorize 5040", "contains:2^4"),
     ("substitute x := t - t_0     (structural)", "contains:t - t_0"),
     ("compare sin(x) vs 2-term Taylor", "status:solved"),
+    ("Q15 of 1/sqrt(2)            (exact repr)", "contains:11585/16384"),
+    ("IEEE 754 of 0.1            (exact bits)", "contains:0.100000000000000005"),
+    ("polar of -1-i        (quadrant-correct)", "contains:-3/4 * pi"),
     ("resources/list", None),
     ("prompts/list", None),
 ]
@@ -55,6 +58,9 @@ for i, reply in enumerate(replies):
         # definite_value first: an integral with limits also carries the antiderivative in
         # `result`, and the definite value is what the case is actually asserting.
         payload.get("definite_value")
+        or payload.get("represented_value")
+        or payload.get("exact_value")
+        or payload.get("phase_radians")
         or payload.get("result")
         or payload.get("eigenvalues")
         or payload.get("solutions")

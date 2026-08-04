@@ -117,7 +117,7 @@ makes it get called.
 | `am_solve_system` | Accepts `x + y = 3` or `x + y - 3`. |
 | `am_check_steps` | Checks a chain of working and says *which* step broke. |
 | `am_domain_check` | Domain guards, structural hazards, and where it stops being real. |
-| `am_base_convert` | Between bases 2–36. |
+| `am_represent` | Encodings: bases 2–36, Q-format fixed point, IEEE 754 bits, polar form. |
 | `am_matrix` | Determinant, inverse, transpose, rank, RREF, trace, multiply, tensor product, power. |
 | `am_eigenvalues` | Exact eigenvalues via the characteristic polynomial, symbolic entries allowed. |
 | `am_substitute` | Plug in without evaluating — see the shape, not a number. |
@@ -202,6 +202,26 @@ calibration curve `v = k·d² + m·d` for `d` gives both quadratic branches.
 enumerated, which is how you find the case you didn't think about.
 
 **Exact test oracles.** `sin(π/3) + cos(π/6)` → `sqrt(3)`, not a float the model guessed.
+
+## Number representations
+
+`am_represent` answers how a number is *encoded* rather than what it equals — adapter work,
+not algebra, which is why it lives here.
+
+**Fixed point.** Quantising `1/sqrt(2)` to Q15 in a 16-bit word gives raw `23170`, an exact
+represented value of `11585/16384`, and an absolute error of `1.44e-5`. Ask for `1.5` in the
+same format and the status comes back `suspect` with `saturated: true` — Q15 cannot hold it,
+and that is a design-time problem rather than a value to accept silently. Pair it with
+`am_compare_numeric` to see what a quantisation costs across a whole operating range instead
+of at one point.
+
+**IEEE 754.** `0.1` as a double is `0x3FB999999999999A`, unbiased exponent −4, and exactly
+`0.10000000000000000555111512312578`. That last figure is what the format really stores, and
+it settles the `0.1 + 0.2 != 0.3` argument better than any explanation.
+
+**Polar form**, kept symbolic: `1+i` gives `sqrt(2)` and `pi/4`, not `1.414` and `0.785`. The
+phase is quadrant-corrected — plain `arctan` would report the same angle for `1+i` and
+`-1-i`; this returns `pi/4` and `-3pi/4`.
 
 ## Linear algebra, and quantum circuits
 

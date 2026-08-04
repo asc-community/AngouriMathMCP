@@ -56,6 +56,12 @@ call() { # name, json-args
   call am_substitute    '{"expression":"a*x^2 + b*x + c","substitutions":{"x":"t - t_0"}}'
   call am_compare_numeric '{"reference":"sin(x)","approximation":"x - x^3/6","variable":"x","from":0,"to":1,"samples":50}'
 
+  # Representations. The Q15 case pins the exact represented value, and the polar case pins
+  # quadrant correction — plain arctan would give pi/4 for -1-i as well.
+  call am_represent     '{"operation":"fixed_point","value":"1/sqrt(2)","fraction_bits":15,"total_bits":16}'
+  call am_represent     '{"operation":"ieee754","value":"0.1"}'
+  call am_represent     '{"operation":"polar","value":"-1 - i"}'
+
   printf '{"jsonrpc":"2.0","id":99,"method":"resources/list","params":{}}\n'
   printf '{"jsonrpc":"2.0","id":98,"method":"prompts/list","params":{}}\n'
 } | timeout 300 "$BIN" 2>/dev/null | python3 "$ROOT/test/report.py"

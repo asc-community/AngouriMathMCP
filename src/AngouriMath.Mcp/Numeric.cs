@@ -169,6 +169,9 @@ public static class Numeric
     public static Entity Strip(Entity e) =>
         e.Replace(node => node is Providedf provided ? provided.Expression : node);
 
+    /// <summary>Real part as a double, or null when it is not numerically evaluable.</summary>
+    public static double? AsNumber(Entity e) => AsDouble(e)?.Real;
+
     /// <summary>Is this expression structurally zero once domain guards are removed?</summary>
     public static bool IsZero(Entity e)
     {

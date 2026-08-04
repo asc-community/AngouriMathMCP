@@ -228,22 +228,63 @@ public static class Tools
                 ["expression"] = Str("Expression to inspect."),
             }, "expression")),
 
-        Tool("am_base_convert",
-            "Convert a number between bases. Handles repeating expansions.",
+        Tool("am_represent",
+            "How a number is ENCODED, rather than what it equals. Bases 2-36, including " +
+            "fractions and repeating expansions. Q-format fixed point, reporting the " +
+            "quantisation error and whether the value saturated — the question you actually " +
+            "have when putting a coefficient into a processor. The bits of an IEEE 754 float " +
+            "or double together with the exact decimal it holds, which is how you settle why " +
+            "0.1 is not 0.1. And polar form, kept symbolic, so 1+i gives sqrt(2) and pi/4 " +
+            "rather than 1.414 and 0.785.",
             Schema(new JsonObject
             {
-                ["value"] = Str("The number, as text, e.g. '54' or '0.125'."),
+                ["operation"] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["enum"] = new JsonArray
+                    {
+                        "base", "fixed_point", "from_fixed_point", "ieee754",
+                        "polar", "rectangular",
+                    },
+                    ["description"] = "Which representation to produce.",
+                },
+                ["value"] = Str("The number as an expression. For 'from_fixed_point', the " +
+                                "raw stored integer. Unused by 'rectangular'."),
                 ["from_base"] = new JsonObject
                 {
                     ["type"] = "integer",
-                    ["description"] = "Base of the input. Default 10.",
+                    ["description"] = "base: base of the input, 2-36. Default 10.",
                 },
                 ["to_base"] = new JsonObject
                 {
                     ["type"] = "integer",
-                    ["description"] = "Base to convert to.",
+                    ["description"] = "base: base to convert to, 2-36.",
                 },
-            }, "value", "to_base")),
+                ["total_bits"] = new JsonObject
+                {
+                    ["type"] = "integer",
+                    ["description"] = "fixed_point: machine word width, e.g. 16 or 32. Default 16.",
+                },
+                ["fraction_bits"] = new JsonObject
+                {
+                    ["type"] = "integer",
+                    ["description"] = "fixed_point / from_fixed_point: bits after the binary " +
+                                      "point. Q15 in a 16-bit word means 15.",
+                },
+                ["signed"] = new JsonObject
+                {
+                    ["type"] = "boolean",
+                    ["description"] = "fixed_point: signed word. Default true.",
+                },
+                ["precision"] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["enum"] = new JsonArray { "double", "single" },
+                    ["description"] = "ieee754: which format. Default double.",
+                },
+                ["magnitude"] = Str("rectangular: magnitude."),
+                ["phase"] = Str("rectangular: phase in radians."),
+            }, "operation")),
 
         Tool("am_matrix",
             "Exact symbolic linear algebra. Entries are expressions, so they may contain " +
@@ -444,7 +485,7 @@ public static class Tools
         "am_solve_system" => SolveSystem(args),
         "am_check_steps" => CheckSteps(args),
         "am_domain_check" => DomainCheck(args),
-        "am_base_convert" => BaseConvert(args),
+        "am_represent" => Represent(args),
         "am_matrix" => MatrixOp(args),
         "am_eigenvalues" => Eigenvalues(args),
         "am_compare_numeric" => CompareNumeric(args),
@@ -1198,7 +1239,24 @@ public static class Tools
         });
     }
 
-    private static JsonObject BaseConvert(JsonObject args)
+    private static JsonObject Represent(JsonObject args)
+    {
+        var operation = S(args, "operation");
+        if (string.IsNullOrWhiteSpace(operation)) return Fail("'operation' is required");
+
+        return operation switch
+        {
+            "base" => RepresentBase(args),
+            "fixed_point" => RepresentFixed(args),
+            "from_fixed_point" => RepresentFromFixed(args),
+            "ieee754" => RepresentIeee(args),
+            "polar" => RepresentPolar(args),
+            "rectangular" => RepresentRectangular(args),
+            _ => Fail($"unknown operation '{operation}'"),
+        };
+    }
+
+    private static JsonObject RepresentBase(JsonObject args)
     {
         var value = S(args, "value");
         if (string.IsNullOrWhiteSpace(value)) return Fail("'value' is required");
@@ -1206,7 +1264,7 @@ public static class Tools
         var fromBase = args.TryGetPropertyValue("from_base", out var f) && f is not null
             ? f.GetValue<int>() : 10;
         if (!args.TryGetPropertyValue("to_base", out var t) || t is null)
-            return Fail("'to_base' is required");
+            return Fail("'to_base' is required for operation 'base'");
         var toBase = t.GetValue<int>();
 
         if (fromBase is < 2 or > 36) return Fail("'from_base' must be between 2 and 36");
@@ -1224,12 +1282,195 @@ public static class Tools
         }), r => new JsonObject
         {
             ["status"] = "solved",
+            ["operation"] = "base",
             ["input"] = value,
             ["from_base"] = fromBase,
             ["to_base"] = toBase,
             ["decimal"] = r.real.Stringize(),
             ["result"] = r.converted,
         });
+    }
+
+    /// <summary>Evaluate an expression to an exact decimal, or explain why not.</summary>
+    private static bool TryDecimal(JsonObject args, string key,
+        out PeterO.Numbers.EDecimal value, out JsonObject? error)
+    {
+        value = PeterO.Numbers.EDecimal.Zero;
+        if (!TryParse(S(args, key), key, false, out var e, out _, out error)) return false;
+
+        if (!e.EvaluableNumerical)
+        {
+            error = Fail($"'{key}' must evaluate to a number; got '{e.Stringize()}'");
+            return false;
+        }
+
+        var complex = e.EvalNumerical();
+        if (!complex.ImaginaryPart.EDecimal.IsZero)
+        {
+            error = Fail($"'{key}' must be real; got '{complex.Stringize()}'");
+            return false;
+        }
+
+        value = complex.RealPart.EDecimal;
+        return true;
+    }
+
+    private static JsonObject RepresentFixed(JsonObject args)
+    {
+        if (!TryDecimal(args, "value", out var value, out var error)) return error!;
+
+        var totalBits = args.TryGetPropertyValue("total_bits", out var tb) && tb is not null
+            ? tb.GetValue<int>() : 16;
+        if (!args.TryGetPropertyValue("fraction_bits", out var fb) || fb is null)
+            return Fail("'fraction_bits' is required for 'fixed_point'");
+        var fractionBits = fb.GetValue<int>();
+        var signed = B(args, "signed", true);
+
+        if (totalBits is < 2 or > 128) return Fail("'total_bits' must be between 2 and 128");
+        if (fractionBits < 0 || fractionBits > totalBits)
+            return Fail("'fraction_bits' must be between 0 and 'total_bits'");
+
+        return FromOutcome(
+            Guard.Run(() => Representations.ToFixed(value, totalBits, fractionBits, signed)),
+            fixedPoint =>
+            {
+                var response = new JsonObject
+                {
+                    ["status"] = fixedPoint.Saturated ? "suspect" : "solved",
+                    ["operation"] = "fixed_point",
+                    ["format"] = $"Q{totalBits - fractionBits - (signed ? 1 : 0)}.{fractionBits}"
+                                 + $" in {totalBits} bits, {(signed ? "signed" : "unsigned")}",
+                    ["raw"] = fixedPoint.Raw.ToString(),
+                    ["raw_hex"] = "0x" + fixedPoint.Raw.Abs().ToRadixString(16).ToUpperInvariant(),
+                    ["represented_value"] = fixedPoint.Represented.Stringize(),
+                    ["absolute_error"] = fixedPoint.Error.ToString(),
+                    ["relative_error"] = fixedPoint.RelativeError.ToString(),
+                    ["resolution"] = fixedPoint.Resolution.ToString(),
+                    ["representable_range"] =
+                        $"[{fixedPoint.Min}, {fixedPoint.Max}] raw",
+                    ["saturated"] = fixedPoint.Saturated,
+                };
+
+                if (fixedPoint.Saturated)
+                    response["note"] = "The value does not fit and was clamped to the limit. " +
+                        "On most processors this is a design-time bug rather than something " +
+                        "to accept — widen the word, or move the binary point.";
+                else
+                    response["note"] = "'represented_value' is exact: an integer over a power " +
+                        "of two is a rational, so there is no second rounding. Use " +
+                        "am_compare_numeric to see what this quantisation costs across your " +
+                        "operating range rather than at a single point.";
+
+                return response;
+            });
+    }
+
+    private static JsonObject RepresentFromFixed(JsonObject args)
+    {
+        if (!TryDecimal(args, "value", out var value, out var error)) return error!;
+        if (!args.TryGetPropertyValue("fraction_bits", out var fb) || fb is null)
+            return Fail("'fraction_bits' is required for 'from_fixed_point'");
+        var fractionBits = fb.GetValue<int>();
+        if (fractionBits is < 0 or > 128) return Fail("'fraction_bits' must be between 0 and 128");
+
+        var raw = value.ToEInteger();
+
+        return FromOutcome(
+            Guard.Run(() => Representations.FromFixed(raw, fractionBits)),
+            v => new JsonObject
+            {
+                ["status"] = "solved",
+                ["operation"] = "from_fixed_point",
+                ["raw"] = raw.ToString(),
+                ["fraction_bits"] = fractionBits,
+                ["result"] = v.Stringize(),
+                ["approximate"] = v.EvaluableNumerical
+                    ? v.EvalNumerical().RealPart.EDecimal.ToDouble().ToString("R")
+                    : null,
+            });
+    }
+
+    private static JsonObject RepresentIeee(JsonObject args)
+    {
+        if (!TryDecimal(args, "value", out var value, out var error)) return error!;
+        var single = (S(args, "precision") ?? "double") == "single";
+
+        return FromOutcome(
+            Guard.Run(() => Representations.Decompose(value, single)),
+            ieee => new JsonObject
+            {
+                ["status"] = "solved",
+                ["operation"] = "ieee754",
+                ["precision"] = single ? "single (32-bit)" : "double (64-bit)",
+                ["bits"] = ieee.Bits,
+                ["hex"] = ieee.Hex,
+                ["sign"] = ieee.Sign,
+                ["exponent_raw"] = ieee.RawExponent,
+                ["exponent_unbiased"] = ieee.UnbiasedExponent,
+                ["mantissa_hex"] = ieee.MantissaHex,
+                ["exact_value"] = ieee.ExactValue,
+                ["error_vs_input"] = ieee.Error.ToString(),
+                ["classification"] = ieee.Classification,
+                ["note"] = "'exact_value' is what the format actually stores, not a rounded " +
+                    "display of it. That difference is the whole reason 0.1 + 0.2 does not " +
+                    "equal 0.3.",
+            });
+    }
+
+    private static JsonObject RepresentPolar(JsonObject args)
+    {
+        if (!TryParse(S(args, "value"), "value", false,
+                out var e, out var warnings, out var error))
+            return error!;
+
+        return FromOutcome(Guard.Run(() =>
+        {
+            var evaluated = e.Evaled;
+            if (evaluated is not Number.Complex complex)
+                throw new ArgumentException($"'{e.Stringize()}' is not a number");
+
+            return Representations.ToPolar(complex.RealPart, complex.ImaginaryPart);
+        }), polar =>
+        {
+            var response = new JsonObject
+            {
+                ["status"] = "solved",
+                ["operation"] = "polar",
+                ["magnitude"] = polar.Magnitude.Stringize(),
+                ["phase_radians"] = polar.Phase.Stringize(),
+                ["phase_degrees"] = polar.PhaseDegrees.Stringize(),
+                ["note"] = "Phase is quadrant-corrected — arctan alone would report the same " +
+                    "angle for 1+i and -1-i.",
+            };
+            if (warnings.Count > 0) response["warnings"] = Warn(warnings);
+            return response;
+        });
+    }
+
+    private static JsonObject RepresentRectangular(JsonObject args)
+    {
+        if (!TryParse(S(args, "magnitude"), "magnitude", false,
+                out var magnitude, out var warnings, out var magnitudeError))
+            return magnitudeError!;
+        if (!TryParse(S(args, "phase"), "phase", false,
+                out var phase, out var more, out var phaseError))
+            return phaseError!;
+        warnings.AddRange(more);
+
+        return FromOutcome(
+            Guard.Run(() => Representations.FromPolar(magnitude, phase)),
+            rectangular =>
+            {
+                var response = new JsonObject
+                {
+                    ["status"] = "solved",
+                    ["operation"] = "rectangular",
+                    ["result"] = rectangular.Stringize(),
+                    ["latex"] = rectangular.Latexise(),
+                };
+                if (warnings.Count > 0) response["warnings"] = Warn(warnings);
+                return response;
+            });
     }
 
     private static JsonObject MatrixOp(JsonObject args)
