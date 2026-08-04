@@ -260,8 +260,13 @@ Both are why `am_integrate` reports `verified: true` for `∫ x*ln(x)` rather th
   process-global `KeyStack` over a plain `List`, with no thread affinity — concurrent calls
   with different parse settings would interfere. One-at-a-time is the honest fix at this
   scale, and a stdio server sees one request at a time anyway.
-- **The timeout path is not covered by the smoke suite.** Every case in the corpus completes
-  in well under the budget on this branch, so the guard is exercised only by construction.
+- **The timeout guard has now been observed working**, though not by the suite on this
+  branch — every case here finishes well inside the budget. It was confirmed by accident
+  when the server was built against the released 1.4.0 package, where `∫ x*ln(x)` overflows
+  the stack inside `IntegrateByPartsPolynomial` and normally takes the process with it. The
+  64 MB worker thread contained it, the timeout fired, the call came back as `timeout`, and
+  every subsequent request was served normally. That is the exact failure the guard exists
+  for.
 - **LaTeX is output only.** There is no LaTeX parser; convert `\frac{a}{b}` to `a/b` first.
 - Nonlinear systems can return nothing even when a solution exists (upstream issue #629).
 - In `am_solve`, `solutions[]` is tidied per root but the raw `result` string is not, so the
