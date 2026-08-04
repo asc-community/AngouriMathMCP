@@ -7,6 +7,10 @@ LABELS = [
     ("parse 'x2 + 1'            (implicit-power trap)", "warn:implicit-power"),
     ("parse 'exp(x)'            (unknown-function trap)", "warn:unknown-function"),
     ("parse '2x + 1' strict     (should refuse)", "status:failed"),
+    ("parse '1.5e3 + 2'         (exponent, not a power)", "nowarn:implicit-power"),
+    ("parse 'α2 + β'            (Greek IS a power)", "warn:implicit-power"),
+    ("parse 'e3'                (bare e IS a power)", "warn:implicit-power"),
+    ("parse 'Γ(x+1)'            (Greek variable*bracket)", "warn:unknown-function"),
     ("simplify (x^2-1)/(x-1)    (domain condition kept)", "contains:provided"),
     ("simplify multivariate     (known: no progress)", None),
     ("solve x^2 = 4", "contains:-2"),
@@ -78,6 +82,7 @@ for i, reply in enumerate(replies):
         blob = json.dumps(payload)
         ok = {
             "warn": any(want in w for w in payload.get("warnings", [])),
+            "nowarn": not any(want in w for w in payload.get("warnings", [])),
             "status": status == want,
             "contains": want in str(shown),
             "notcontains": want not in str(shown),

@@ -61,12 +61,30 @@ public static class Parsing
         ["max"] = "not available; use piecewise or a comparison",
     };
 
-    // A digit directly after a LETTER is the trap: `x2` parses as x^2. A digit after an
-    // underscore is not — `t_0` parses as a single variable named t_0, and is the
-    // conventional safe way to write a subscript. Warning on it was a false positive, and
-    // false positives are how you teach a caller to ignore warnings.
-    private static readonly Regex TrailingDigit = new(@"[A-Za-z]\d", RegexOptions.Compiled);
-    private static readonly Regex CallLike = new(@"([A-Za-z_]\w*)\s*\(", RegexOptions.Compiled);
+    // The alphabet AngouriMath's VARIABLE rule actually accepts (AngouriMath.g:442): ASCII
+    // letters, Greek and Coptic, Greek Extended, Cyrillic. Both warnings below are lexical
+    // guesses at what the grammar will do, so they have to guess in the grammar's alphabet —
+    // `[A-Za-z]` silently exempted every Greek and Cyrillic name from both checks, and `α2`
+    // was squared with nothing said.
+    // Kept as escapes rather than literal Greek so the ranges can be read straight off the
+    // grammar. The string is verbatim, so C# passes the escapes through untouched and the
+    // regex engine is what interprets them.
+    private const string VariableChars = @"a-zA-Z\u0370-\u03FF\u1F00-\u1FFF\u0400-\u04FF";
+
+    // A digit directly after a LETTER is the trap: `x2` parses as x^2. Two things are NOT
+    // the trap. A digit after an underscore — `t_0` is a single variable named t_0, and is
+    // the conventional safe way to write a subscript. And the digits of an exponent: `1.5e3`
+    // is ONE number token, because EXPONENT is a fragment of NUMBER, so its `e` belongs to
+    // the literal rather than to a variable. Hence the second branch: an `e` IS a warnable
+    // identifier when no numeric literal precedes it, which is why bare `e3` (that is, e^3)
+    // still warns. False positives are how you teach a caller to ignore warnings.
+    private static readonly Regex TrailingDigit =
+        new($@"[{VariableChars}-[eE]]\d|(?<![\d.])[eE]\d", RegexOptions.Compiled);
+
+    // A name followed by '(' — the grammar has no leading-underscore variable, so the name
+    // must start with a letter, and only continue with what VARIABLE allows.
+    private static readonly Regex CallLike =
+        new($@"([{VariableChars}][{VariableChars}0-9_]*)\s*\(", RegexOptions.Compiled);
 
     public static Outcome Parse(string source, bool strict = false)
     {

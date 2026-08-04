@@ -23,6 +23,18 @@ call() { # name, json-args
   call am_parse         '{"expression":"x2 + 1"}'
   call am_parse         '{"expression":"exp(x)"}'
   call am_parse         '{"expression":"2x + 1","strict":true}'
+
+  # The implicit-power check must read the grammar rather than ASCII. `1.5e3` is a single
+  # NUMBER token — EXPONENT is a fragment of NUMBER — so the digits after `e` are not a
+  # trailing power. `α2` is one, because VARIABLE accepts Greek and Cyrillic. And a bare
+  # `e3` still is, because there is no numeric literal for that `e` to belong to; it is the
+  # case that stops the exponent exclusion from being written too broadly.
+  call am_parse         '{"expression":"1.5e3 + 2"}'
+  call am_parse         '{"expression":"α2 + β"}'
+  call am_parse         '{"expression":"e3"}'
+  # Same alphabet gap on the other warning: `Γ(x+1)` is Γ multiplied by a bracket, exactly
+  # the trap the unknown-function warning exists to catch.
+  call am_parse         '{"expression":"Γ(x+1)"}'
   call am_simplify      '{"expression":"(x^2-1)/(x-1)"}'
   call am_simplify      '{"expression":"(x^2+2*x*y+y^2)/(x^2-y^2)"}'
   call am_solve         '{"constraints":["x^2 = 4"],"variable":"x"}'
