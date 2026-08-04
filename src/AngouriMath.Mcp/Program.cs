@@ -77,6 +77,7 @@ JsonObject? Dispatch(string method, JsonObject? parameters)
                 {
                     ["tools"] = new JsonObject(),
                     ["resources"] = new JsonObject(),
+                    ["prompts"] = new JsonObject(),
                 },
                 ["serverInfo"] = new JsonObject
                 {
@@ -131,6 +132,22 @@ JsonObject? Dispatch(string method, JsonObject? parameters)
 
             var isError = payload["status"]?.GetValue<string>() is "failed";
             return ToolText(payload.ToJsonString(serializerOptions), isError);
+        }
+
+        case "prompts/list":
+            return new JsonObject { ["prompts"] = Prompts.List() };
+
+        case "prompts/get":
+        {
+            var promptName = parameters?["name"]?.GetValue<string>();
+            if (promptName is null)
+                throw new InvalidOperationException("prompts/get requires a name");
+
+            var prompt = Prompts.Get(promptName, parameters?["arguments"] as JsonObject);
+            if (prompt is null)
+                throw new InvalidOperationException($"no such prompt: {promptName}");
+
+            return prompt;
         }
 
         case "resources/list":

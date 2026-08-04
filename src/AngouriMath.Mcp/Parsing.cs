@@ -61,7 +61,11 @@ public static class Parsing
         ["max"] = "not available; use piecewise or a comparison",
     };
 
-    private static readonly Regex TrailingDigit = new(@"[A-Za-z_]\w*?\d", RegexOptions.Compiled);
+    // A digit directly after a LETTER is the trap: `x2` parses as x^2. A digit after an
+    // underscore is not — `t_0` parses as a single variable named t_0, and is the
+    // conventional safe way to write a subscript. Warning on it was a false positive, and
+    // false positives are how you teach a caller to ignore warnings.
+    private static readonly Regex TrailingDigit = new(@"[A-Za-z]\d", RegexOptions.Compiled);
     private static readonly Regex CallLike = new(@"([A-Za-z_]\w*)\s*\(", RegexOptions.Compiled);
 
     public static Outcome Parse(string source, bool strict = false)

@@ -311,6 +311,28 @@ public static class Tools
                 },
             }, "matrix")),
 
+        Tool("am_substitute",
+            "Replace variables with expressions and return the result WITHOUT evaluating or " +
+            "simplifying it. Use this when you want to see the shape of a substitution — " +
+            "putting a model into a formula, specialising a general result — rather than a " +
+            "number. am_evaluate always simplifies; this does not.",
+            Schema(new JsonObject
+            {
+                ["expression"] = Str("Expression to substitute into."),
+                ["substitutions"] = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["additionalProperties"] = new JsonObject { ["type"] = "string" },
+                    ["description"] = "Map of variable -> replacement expression, " +
+                                      "e.g. {\"x\": \"a + b\"}.",
+                },
+                ["simplify"] = new JsonObject
+                {
+                    ["type"] = "boolean",
+                    ["description"] = "Simplify afterwards as well. Default false.",
+                },
+            }, "expression", "substitutions")),
+
         Tool("am_expand",
             "Expand brackets and powers into a sum of terms. The opposite of am_factor.",
             Schema(new JsonObject
@@ -396,6 +418,7 @@ public static class Tools
         "am_base_convert" => BaseConvert(args),
         "am_matrix" => MatrixOp(args),
         "am_eigenvalues" => Eigenvalues(args),
+        "am_substitute" => Substitute(args),
         "am_expand" => Rewrite(args, expand: true),
         "am_factor" => Rewrite(args, expand: false),
         "am_series" => Series(args),
@@ -1360,6 +1383,58 @@ public static class Tools
             }
 
             if (parsed.Warnings.Count > 0) response["warnings"] = Warn(parsed.Warnings);
+            return response;
+        });
+    }
+
+    private static JsonObject Substitute(JsonObject args)
+    {
+        if (!TryParse(S(args, "expression"), "expression", false,
+                out var e, out var warnings, out var error))
+            return error!;
+
+        if (args["substitutions"] is not JsonObject subs || subs.Count == 0)
+            return Fail("'substitutions' must be a non-empty map of variable -> expression");
+
+        var replacements = new List<(string Name, Entity Value)>();
+        foreach (var (key, value) in subs)
+        {
+            if (value is null) continue;
+            if (!TryParse(value.GetValue<string>(), $"substitutions.{key}", false,
+                    out var replacement, out var more, out var subError))
+                return subError!;
+            replacements.Add((key, replacement));
+            warnings.AddRange(more);
+        }
+
+        var alsoSimplify = B(args, "simplify");
+
+        return FromOutcome(Guard.Run(() =>
+        {
+            var result = e;
+            foreach (var (name, value) in replacements)
+                result = result.Substitute(Var(name), value);
+
+            // Substitution alone is deliberately structural — no InnerSimplified, no
+            // Evaled. Seeing the unreduced shape is the entire reason to use this rather
+            // than am_evaluate.
+            return alsoSimplify ? result.Simplify() : result;
+        }), r =>
+        {
+            var response = Respond(e, r, warnings);
+            var applied = new JsonArray();
+            foreach (var (name, value) in replacements)
+                applied.Add($"{name} := {value.Stringize()}");
+            response["applied"] = applied;
+
+            if (!alsoSimplify)
+                response["note"] = "Substituted structurally, not simplified — pass " +
+                    "simplify: true, or send the result to am_simplify, if you want it reduced.";
+
+            var remaining = new JsonArray();
+            foreach (var v in r.Vars) remaining.Add(v.Stringize());
+            response["free_variables"] = remaining;
+
             return response;
         });
     }

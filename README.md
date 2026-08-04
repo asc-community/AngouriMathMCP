@@ -108,12 +108,31 @@ makes it get called.
 | `am_base_convert` | Between bases 2–36. |
 | `am_matrix` | Determinant, inverse, transpose, rank, RREF, trace, multiply, tensor product, power. |
 | `am_eigenvalues` | Exact eigenvalues via the characteristic polynomial, symbolic entries allowed. |
+| `am_substitute` | Plug in without evaluating — see the shape, not a number. |
 | `am_expand` / `am_factor` | Brackets out, or back into a product. |
 | `am_series` | Taylor / Maclaurin to a given degree. |
 | `am_number_theory` | Factorisation, totient, gcd, divisor count, primality. |
 | `am_to_sympy` | Runnable SymPy program, for cross-checking. |
 
-Two resources are served: `angourimath://syntax` (including the parse traps below) and
+## Prompts
+
+The server also exposes MCP **prompts**, which hosts surface as slash commands. They exist
+because of the routing problem: a model will not reach for a maths tool, being confident it
+can do algebra unaided — so a prompt is the *user* reaching for it instead. They also cost
+nothing in tool-list context, which matters at twenty-two tools.
+
+| Prompt | Does |
+|---|---|
+| `verify-derivation` | Checks your working step by step and names the one that broke. |
+| `check-formula` | Documented formula vs the expression actually in the code. |
+| `derive-jacobian` | Partials with respect to each state variable, each verified. |
+| `solve-with-constraints` | Solves, then keeps only the physically meaningful branch. |
+
+Each embeds the same discipline: read the `parsed` field, treat `declined` as no answer, stop
+on `verified: false`, and attribute results to the tool rather than presenting them as your
+own working.
+
+Three resources are served: `angourimath://syntax` (including the parse traps below) and
 `angourimath://reliability` (measured per-category pass rates from `work/coverage.md`).
 
 Every tool is annotated `readOnlyHint` / `openWorldHint: false`, so clients can auto-approve.

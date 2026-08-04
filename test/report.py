@@ -28,7 +28,9 @@ LABELS = [
     ("definite integral         (22/7 > pi proof)", "contains:22/7"),
     ("Maclaurin sin(x) deg 7", "contains:120"),
     ("factorize 5040", "contains:2^4"),
+    ("substitute x := t - t_0     (structural)", "contains:t - t_0"),
     ("resources/list", None),
+    ("prompts/list", None),
 ]
 
 replies = []
@@ -59,7 +61,8 @@ for i, reply in enumerate(replies):
         or payload.get("truth_table", "").replace("\n", " ")[:40]
         or ("equal=" + str(payload.get("equal")) if "equal" in payload else "")
         or payload.get("error")
-        or ("%d resources" % len(payload["resources"]) if "resources" in payload else "ok")
+        or ("%d resources" % len(payload["resources"]) if "resources" in payload else "")
+        or ("%d prompts" % len(payload["prompts"]) if "prompts" in payload else "ok")
     )
 
     verdict = "    "
