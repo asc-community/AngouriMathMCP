@@ -326,7 +326,8 @@ an MCP one, and does not apply to a .NET repo. The executable stays lowercase
 
 ## License
 
-MIT — see [LICENSE](LICENSE). AngouriMath itself is MIT; note that the separate
+MIT — see [LICENSE.md](LICENSE.md), matching AngouriMath's own licence and copyright
+holder. Note that the separate
 `AngouriMathCLI` project is GPL-3.0 and is **not** used here.
 
 ## Scope
