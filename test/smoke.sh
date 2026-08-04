@@ -47,5 +47,11 @@ call() { # name, json-args
   call am_matrix        '{"operation":"tensor_product","matrix":[["1/sqrt(2)","1/sqrt(2)"],["1/sqrt(2)","-1/sqrt(2)"]],"matrix_b":[["1","0"],["0","1"]]}'
   call am_eigenvalues   '{"matrix":[["0","J"],["J","0"]]}'
 
+  # Definite integration, series, and integer facts. The first is the 22/7 > pi proof, which
+  # used to take three calls and a hand-done polynomial division.
+  call am_integrate     '{"expression":"x^6-4*x^5+5*x^4-4*x^2+4-4/(1+x^2)","variable":"x","from":"0","to":"1"}'
+  call am_series        '{"expression":"sin(x)","variable":"x","degree":7}'
+  call am_number_theory '{"operation":"factorize","value":"5040"}'
+
   printf '{"jsonrpc":"2.0","id":99,"method":"resources/list","params":{}}\n'
 } | timeout 300 "$BIN" 2>/dev/null | python3 "$ROOT/test/report.py"

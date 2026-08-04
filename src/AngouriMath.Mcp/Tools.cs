@@ -115,6 +115,8 @@ public static class Tools
             {
                 ["expression"] = Str("Integrand."),
                 ["variable"] = Str("Variable of integration."),
+                ["from"] = Str("Lower limit. Give both 'from' and 'to' for a definite integral."),
+                ["to"] = Str("Upper limit."),
             }, "expression", "variable")),
 
         Tool("am_limit",
@@ -309,6 +311,55 @@ public static class Tools
                 },
             }, "matrix")),
 
+        Tool("am_expand",
+            "Expand brackets and powers into a sum of terms. The opposite of am_factor.",
+            Schema(new JsonObject
+            {
+                ["expression"] = Str("Expression to expand, e.g. '(x+1)^3'."),
+            }, "expression")),
+
+        Tool("am_factor",
+            "Factorise an expression into a product. The opposite of am_expand. Multivariate " +
+            "factoring is limited, so a result identical to the input means no progress.",
+            Schema(new JsonObject
+            {
+                ["expression"] = Str("Expression to factorise, e.g. 'x^2 - 1'."),
+            }, "expression")),
+
+        Tool("am_series",
+            "Taylor or Maclaurin series expansion to a given degree. Use it to linearise a " +
+            "model around an operating point, to justify a small-angle approximation, or to " +
+            "decide how many terms a fixed-point implementation actually needs.",
+            Schema(new JsonObject
+            {
+                ["expression"] = Str("Expression to expand, e.g. 'sin(x)'."),
+                ["variable"] = Str("Variable to expand in."),
+                ["degree"] = new JsonObject
+                {
+                    ["type"] = "integer",
+                    ["description"] = "Highest power to include. Keep it modest; cost grows quickly.",
+                },
+                ["around"] = Str("Point to expand about. Omit for 0 (a Maclaurin series)."),
+            }, "expression", "variable", "degree")),
+
+        Tool("am_number_theory",
+            "Integer facts: prime factorisation, Euler's totient, greatest common divisor, " +
+            "divisor count, primality. Exact for large integers.",
+            Schema(new JsonObject
+            {
+                ["operation"] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["enum"] = new JsonArray
+                    {
+                        "factorize", "totient", "gcd", "count_divisors", "is_prime",
+                    },
+                    ["description"] = "Which fact to compute.",
+                },
+                ["value"] = Str("The integer, as an expression, e.g. '5040'."),
+                ["value_b"] = Str("Second integer, for 'gcd'."),
+            }, "operation", "value")),
+
         Tool("am_classify",
             "Guess which field of science or mathematics a formula comes from, by reading " +
             "its symbols and structure. Inference from naming convention only — 'c' is the " +
@@ -345,6 +396,10 @@ public static class Tools
         "am_base_convert" => BaseConvert(args),
         "am_matrix" => MatrixOp(args),
         "am_eigenvalues" => Eigenvalues(args),
+        "am_expand" => Rewrite(args, expand: true),
+        "am_factor" => Rewrite(args, expand: false),
+        "am_series" => Series(args),
+        "am_number_theory" => NumberTheory(args),
         "am_classify" => ClassifyFormula(args),
         "am_to_sympy" => ToSympy(args),
         _ => Fail($"unknown tool '{name}'"),
@@ -584,6 +639,22 @@ public static class Tools
         var variable = S(args, "variable");
         if (string.IsNullOrWhiteSpace(variable)) return Fail("'variable' is required");
 
+        var fromText = S(args, "from");
+        var toText = S(args, "to");
+        if (string.IsNullOrWhiteSpace(fromText) != string.IsNullOrWhiteSpace(toText))
+            return Fail("give both 'from' and 'to', or neither");
+
+        Entity? lower = null, upper = null;
+        if (!string.IsNullOrWhiteSpace(fromText))
+        {
+            if (!TryParse(fromText, "from", false, out var l, out _, out var lowerError))
+                return lowerError!;
+            if (!TryParse(toText, "to", false, out var u, out _, out var upperError))
+                return upperError!;
+            lower = l;
+            upper = u;
+        }
+
         return FromOutcome(Guard.Run(() =>
         {
             var v = Var(variable!);
@@ -591,7 +662,7 @@ public static class Tools
 
             // Decline check on the RAW result, before Simplify — see Guard.IsDeclined.
             if (Guard.IsDeclined(antiderivative.Stringize()))
-                return (antiderivative, (bool?)null);
+                return (antiderivative, (bool?)null, (Entity?)null);
 
             var tidy = antiderivative.Simplify();
 
@@ -607,7 +678,16 @@ public static class Tools
                 verified = null;
             }
 
-            return (tidy, verified);
+            // The definite value is evaluated from the SAME antiderivative that was just
+            // verified, rather than asked for separately — so the verification covers it.
+            Entity? definite = null;
+            if (lower is not null && upper is not null)
+            {
+                var bare = Numeric.Strip(tidy);
+                definite = (bare.Substitute(v, upper) - bare.Substitute(v, lower)).Simplify();
+            }
+
+            return (tidy, verified, definite);
         }), r =>
         {
             var response = Respond(e, r.Item1, warnings);
@@ -628,6 +708,19 @@ public static class Tools
                     "(e.g. e^x/x, e^(x^2)) no elementary antiderivative exists at all, so " +
                     "this is the mathematically correct outcome.";
             }
+
+            if (r.Item3 is { } definite)
+            {
+                response["definite_value"] = definite.Stringize();
+                response["definite_latex"] = definite.Latexise();
+                response["definite_caveat"] =
+                    "Computed as F(to) - F(from) from the verified antiderivative. That is " +
+                    "only valid when the integrand is continuous across the whole interval — " +
+                    "it will happily return a finite, wrong number for something like " +
+                    "1/x^2 across zero. Check for a singularity between the limits yourself, " +
+                    "or ask am_domain_check.";
+            }
+
             return response;
         });
     }
@@ -1267,6 +1360,129 @@ public static class Tools
             }
 
             if (parsed.Warnings.Count > 0) response["warnings"] = Warn(parsed.Warnings);
+            return response;
+        });
+    }
+
+    private static JsonObject Rewrite(JsonObject args, bool expand)
+    {
+        if (!TryParse(S(args, "expression"), "expression", false,
+                out var e, out var warnings, out var error))
+            return error!;
+
+        return FromOutcome(
+            Guard.Run(() => expand ? e.Expand() : e.Factorize()),
+            r => Respond(e, r, warnings));
+    }
+
+    private static JsonObject Series(JsonObject args)
+    {
+        if (!TryParse(S(args, "expression"), "expression", false,
+                out var e, out var warnings, out var error))
+            return error!;
+
+        var variable = S(args, "variable");
+        if (string.IsNullOrWhiteSpace(variable)) return Fail("'variable' is required");
+
+        if (!args.TryGetPropertyValue("degree", out var d) || d is null)
+            return Fail("'degree' is required");
+        var degree = d.GetValue<int>();
+        if (degree is < 1 or > 30) return Fail("'degree' must be between 1 and 30");
+
+        var aroundText = S(args, "around");
+        Entity? around = null;
+        if (!string.IsNullOrWhiteSpace(aroundText))
+        {
+            if (!TryParse(aroundText, "around", false, out var point, out _, out var pointError))
+                return pointError!;
+            around = point;
+        }
+
+        return FromOutcome(Guard.Run(() =>
+        {
+            var v = Var(variable!);
+            var raw = around is null
+                ? MathS.Series.Maclaurin(e, degree, v)
+                : MathS.Series.Taylor(e, degree, (v, around));
+
+            // The raw series keeps factorials unevaluated (`... / 3!`), so it is unreadable
+            // until reduced.
+            return raw.InnerSimplified.Simplify();
+        }), r =>
+        {
+            var response = Respond(e, r, warnings);
+            response["degree"] = degree;
+            response["around"] = around?.Stringize() ?? "0";
+            response["kind"] = around is null ? "Maclaurin" : "Taylor";
+            response["truncation_note"] =
+                "This is a truncated series: it agrees with the original near the expansion " +
+                "point and diverges away from it. There is no error bound here — treat it as " +
+                "an approximation whose validity you must argue separately.";
+            return response;
+        });
+    }
+
+    private static JsonObject NumberTheory(JsonObject args)
+    {
+        var operation = S(args, "operation");
+        if (string.IsNullOrWhiteSpace(operation)) return Fail("'operation' is required");
+
+        if (!TryParse(S(args, "value"), "value", false, out var e, out var warnings, out var error))
+            return error!;
+
+        if (e.Evaled is not Number.Integer a)
+            return Fail($"'value' must evaluate to an integer; got '{e.Stringize()}'");
+
+        Number.Integer? b = null;
+        if (operation == "gcd")
+        {
+            if (!TryParse(S(args, "value_b"), "value_b", false,
+                    out var second, out var moreWarnings, out var secondError))
+                return secondError!;
+            if (second.Evaled is not Number.Integer parsedB)
+                return Fail("'value_b' must evaluate to an integer");
+            b = parsedB;
+            warnings.AddRange(moreWarnings);
+        }
+
+        return FromOutcome(Guard.Run<object>(() => operation switch
+        {
+            "factorize" => MathS.NumberTheory.Factorize(a).ToList(),
+            "totient" => MathS.NumberTheory.Phi(a).Evaled,
+            "gcd" => MathS.NumberTheory.GreatestCommonDivisor(a, b!),
+            "count_divisors" => MathS.NumberTheory.CountDivisors(a),
+            "is_prime" => a.IsPrime,
+            _ => throw new ArgumentException($"unknown operation '{operation}'"),
+        }), value =>
+        {
+            var response = new JsonObject
+            {
+                ["status"] = "solved",
+                ["operation"] = operation,
+                ["input"] = a.Stringize(),
+            };
+
+            if (value is List<(Number.Integer Prime, Number.Integer Power)> factors)
+            {
+                var listed = new JsonArray();
+                foreach (var (prime, power) in factors)
+                    listed.Add(new JsonObject
+                    {
+                        ["prime"] = prime.Stringize(),
+                        ["power"] = power.Stringize(),
+                    });
+                response["factors"] = listed;
+                response["result"] = string.Join(" * ", factors.Select(f =>
+                    f.Power.Stringize() == "1"
+                        ? f.Prime.Stringize()
+                        : $"{f.Prime.Stringize()}^{f.Power.Stringize()}"));
+            }
+            else
+            {
+                response["result"] = value.ToString();
+            }
+
+            if (warnings.Count > 0) response["warnings"] = Warn(warnings);
             return response;
         });
     }

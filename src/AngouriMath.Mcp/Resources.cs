@@ -224,9 +224,9 @@ public static class Resources
         - **Simplify is not canonical**: `sqrt(12)+sqrt(27)` may come back as `sqrt(3)*5`
           while `5*sqrt(3)` is left alone. Two different-looking outputs can be equal — use
           `am_verify_equal` rather than comparing strings.
-        - **Output tidiness** is a genuine weakness: `expand (x+1)^3` gives
-          `1 + x^3 + 3*(x + x^2)` rather than the collected form. Pass `alternatives: true`
-          to `am_simplify` and pick a nicer one.
+        - **Output tidiness** varies. Results are correct but not always in the form a human
+          would write — `Factorize(x^2 - 1)` gives `(x - sqrt(1)) * (x + sqrt(1))`. Pass
+          `alternatives: true` to `am_simplify` and pick a nicer form.
         - **Nonlinear systems** can return no solution when one exists (issue #629).
 
         ## How to talk about a result

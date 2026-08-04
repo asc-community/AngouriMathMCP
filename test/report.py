@@ -25,6 +25,9 @@ LABELS = [
     ("det [[a,b],[c,d]]         (no bogus guard)", "notcontains:provided"),
     ("H (x) I                   (tensor product)", "status:solved"),
     ("eig [[0,J],[J,0]]         (valid at J=0)", "notcontains:provided"),
+    ("definite integral         (22/7 > pi proof)", "contains:22/7"),
+    ("Maclaurin sin(x) deg 7", "contains:120"),
+    ("factorize 5040", "contains:2^4"),
     ("resources/list", None),
 ]
 
@@ -46,7 +49,10 @@ for i, reply in enumerate(replies):
 
     status = payload.get("status", "-")
     shown = (
-        payload.get("result")
+        # definite_value first: an integral with limits also carries the antiderivative in
+        # `result`, and the definite value is what the case is actually asserting.
+        payload.get("definite_value")
+        or payload.get("result")
         or payload.get("eigenvalues")
         or payload.get("solutions")
         or payload.get("sympy", "")[:40].replace("\n", " ")

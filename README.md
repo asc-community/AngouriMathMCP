@@ -108,6 +108,9 @@ makes it get called.
 | `am_base_convert` | Between bases 2–36. |
 | `am_matrix` | Determinant, inverse, transpose, rank, RREF, trace, multiply, tensor product, power. |
 | `am_eigenvalues` | Exact eigenvalues via the characteristic polynomial, symbolic entries allowed. |
+| `am_expand` / `am_factor` | Brackets out, or back into a product. |
+| `am_series` | Taylor / Maclaurin to a given degree. |
+| `am_number_theory` | Factorisation, totient, gcd, divisor count, primality. |
 | `am_to_sympy` | Runnable SymPy program, for cross-checking. |
 
 Two resources are served: `angourimath://syntax` (including the parse traps below) and
@@ -288,3 +291,10 @@ an MCP one, and does not apply to a .NET repo. The executable stays lowercase
 
 MIT — see [LICENSE](LICENSE). AngouriMath itself is MIT; note that the separate
 `AngouriMathCLI` project is GPL-3.0 and is **not** used here.
+
+## Scope
+
+This is an adapter, not a second computer-algebra system. Features that belong in AngouriMath
+were deliberately left out of it — see [UPSTREAM.md](UPSTREAM.md), which also lists the
+workarounds here that should eventually move upstream, and the library defects found while
+building this.
