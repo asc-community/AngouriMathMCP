@@ -25,12 +25,11 @@ dotnet build -c Release src/AngouriMath.Mcp
 ./test/scenarios.sh                  # 20 use-cases, run for real; nothing asserted, read it
 ```
 
-**Which AngouriMath it builds against matters.** If a sibling checkout exists at
-`../AngouriMath` relative to this repo, it is used automatically. Otherwise the build falls
-back to the released **1.4.0** package and prints a warning — the server runs, but that
-release scores 75/117 on the corpus with 3 wrong answers and 3 hangs, so parts of the
-`angourimath://reliability` resource and several tests in `test/smoke.sh` will not hold.
-See *Why the local build* at the end.
+**Which AngouriMath it builds against.** If a sibling checkout exists at `../AngouriMath`
+relative to this repo, it is used automatically; otherwise the build takes the released
+**2.0.0** package. Both behave the same — 2.0.0 *is* that branch — so the tests and the
+`angourimath://reliability` figures hold either way. This was not true before 2.0.0, and
+the two are only equivalent between releases; see *Which build* at the end.
 
 ## Installing it in an agent
 
@@ -109,7 +108,7 @@ makes it get called.
 | `am_simplify` | `alternatives: true` returns several candidate forms. |
 | `am_solve` | Takes a *list* of constraints, combined with `and`. Handles inequalities. |
 | `am_differentiate` | Any order. |
-| `am_integrate` | Always verified by differentiating back; see `verified`. |
+| `am_integrate` | Always verified by differentiating back; see `verified`. With `from`/`to`, a declined antiderivative still yields `numeric_definite_value` for that interval. |
 | `am_limit` | One-sided via `side`. Distinguishes "no limit" from failure. |
 | `am_evaluate` | Exact form plus decimal, with optional substitutions. |
 | `am_verify_equal` | Check your own algebra: did you change the meaning? |
@@ -160,10 +159,16 @@ plausible answer:
 
 - a trailing number is an **exponent**: `x2` is x², `2(g+e)3` is 2(g+e)³. A model naming a
   variable `x2` or `v1` gets it squared.
-- an unknown identifier becomes **multiplication**: `pow(x,y)` lexes as `p*o*w(...)`,
-  `arcsinh(x)` as the product `arcsinh * x`.
+- an unknown identifier becomes **multiplication**: `im(z)` is the product `im * z`.
 
 Both now raise a warning, and the `parsed` field always shows what was understood.
+
+AngouriMath 2.0.0 closed most of the second trap at the source — `exp`, `log10`, `log2`,
+`pow`, `floor`, `ceil`, `round`, `min`, `max` and `gcd` became real functions, and eleven
+names the library does not have are refused rather than silently multiplied. The whitelist
+here is rebuilt from a probe against the grammar rather than from the release notes, because
+a name that has *become* a function makes the warning fire on correct input, which is how a
+caller learns to ignore the channel.
 
 **Status is explicit.** `solved` / `unchanged` / `declined` / `suspect` / `timeout` / `failed`.
 `declined` means AngouriMath left the expression unevaluated — it has no rule. That check runs
@@ -173,11 +178,29 @@ to `NaN`, which would otherwise be reported as a wrong answer instead of an hone
 **A NaN screen.** A printed `NaN` is almost never a legitimate answer; in `work/propcheck`
 this one check caught two wrong integrals.
 
+**A decline is a decline, whichever way the library says it.** An unevaluated `integral(...)`
+in the result and a `NotSufficientlySupportedException` mean the same thing to a caller, so
+both come back as `declined`. That second one only became distinguishable in AngouriMath
+2.0.0 — a known gap used to raise `AngouriBugException` and *ask to be reported*, which is
+indistinguishable from a real defect. `failed` now means bad input or something that went
+genuinely wrong.
+
+**An approximate answer says how approximate it is.** Where no antiderivative exists but
+`from` and `to` were given, `am_integrate` falls back to `Entity.DefiniteIntegral`, which
+2.0.0 added. That is a first-order rule returning a hundred digits whatever the step count:
+`∫[0,1] e^(x^2)` prints as `1.4666222366253148581140206684...` when the true value is
+`1.46265174590718`, wrong in the third decimal and reading as converged to the thirtieth.
+So it is run twice, at 2000 steps and 4000, and the answer is reported to the digits the two
+agree on — `1.463`, with the error bound alongside. Every digit shown is believed, and there
+are no more to be had. The rule samples both endpoints, so a convergent integral with a
+singular endpoint (`∫[0,1] sin(x)/x`) returns nothing here rather than a number.
+
 **Timeouts and stack-overflow isolation.** Each call runs under
 `MathS.Multithreading.SetLocalCancellationToken` on a dedicated 64 MB-stack thread, abandoned
-rather than killed on timeout. Cancellation cannot rescue a stack overflow — on upstream
-master `∫ x*ln(x)` overflows inside `IntegrateByPartsPolynomial` and takes the process with
-it — so the big stack is the second line of defence. Same approach as `work/casbench`.
+rather than killed on timeout. Cancellation cannot rescue a stack overflow — on 1.4.0
+`∫ x*ln(x)` overflowed inside `IntegrateByPartsPolynomial` and took the process with it, and
+2.0.0 fixed that particular one — so the big stack stays as the second line of defence.
+Same approach as `work/casbench`.
 
 ## Use cases
 
@@ -270,23 +293,23 @@ know that a length must be positive, but you can say so: `am_solve` takes a list
 constraints, so `['v = k*d^2 + m*d', 'd > 0']` returns only the physical branch. Encode the
 physics as mathematics and the solver enforces it.
 
-## A soundness bug this found
+## A soundness bug this found, and what happened to it
 
-`Simplify(sqrt(x^2))` returns **`x`**. It should be `abs(x)`. The library then contradicts
-itself: evaluating `sqrt(x^2)` at `x = -2` correctly gives `2`, while the simplified form
-gives `-2`. This is the same class of error that `work/comparison.md` credits AngouriMath for
-*avoiding* relative to Math.NET.
+`Simplify(sqrt(x^2))` returned **`x`**, which is wrong at every negative: the library
+contradicted itself, since evaluating `sqrt(x^2)` at `x = -2` correctly gives `2` while the
+simplified form gave `-2`. AngouriMath **2.0.0 fixed it** — the rewrite now carries the
+condition it needs, and `sqrt(x^2)` is left as written rather than reduced to something
+false. It is still not `abs(x)`; writing that requires knowing the expression is real, which
+the library can now say and the simplifier does not yet read.
 
-Caveat on that claim: this is a work-in-progress branch with fixes in flight, so treat it as
-an observation on the current build rather than a verdict on the project. It is not in
-`work/TRIAGE.md` as of this commit, which is why it is written down here.
-
-It also exposed a weakness in this server: `am_verify_equal`'s exact path trusts `Simplify`,
-so it initially reported `sqrt(x^2) = x` as **equal**. It now cross-checks the original two
-sides numerically across the real line whenever the exact path claims equality, and reports
-`status: conflict` when they disagree — because a direct evaluation never passes through a
-rewrite, so it is the better evidence. `sqrt(x^2)` vs `abs(x)` still returns equal, so the
-check discriminates rather than just objecting.
+It exposed a weakness in this server too, and that fix has outlived the bug.
+`am_verify_equal`'s exact path trusts `Simplify`, so it initially reported `sqrt(x^2) = x`
+as **equal** on the strength of a bad rewrite. It now cross-checks the original two sides
+numerically across the real line whenever the exact path claims equality, and reports
+`status: conflict` when they disagree, because a direct evaluation never passes through a
+rewrite. On 2.0.0 that cross-check finds nothing to object to here, which is the point — the
+guard stays, and `sqrt(x^2)` against `x` is now answered `equal: true` **with a note** that
+the two agree only for positive inputs, from the same second pass across the negatives.
 
 ## Two findings from building this
 
@@ -309,13 +332,16 @@ Both are why `am_integrate` reports `verified: true` for `∫ x*ln(x)` rather th
 
 ## Known limits
 
-- **Requests are serialised, deliberately.** `MathS.Settings` stores values in a
-  process-global `KeyStack` over a plain `List`, with no thread affinity — concurrent calls
-  with different parse settings would interfere. One-at-a-time is the honest fix at this
-  scale, and a stdio server sees one request at a time anyway.
+- **Requests are serialised**, though the reason has expired. `MathS.Settings` used to keep
+  its values in `[ThreadStatic]` fields, so concurrent calls with different parse settings
+  interfered; AngouriMath 2.0.0 moved them to an `AsyncLocal`, and a scope now follows the
+  call — verified here, including onto the dedicated worker thread `Guard` starts. Serving
+  one request at a time is no longer load-bearing, just unchanged: a stdio server sees one
+  request at a time anyway, and making the loop concurrent is a change worth measuring on
+  its own rather than inheriting from a library upgrade.
 - **The timeout guard has now been observed working**, though not by the suite on this
   branch — every case here finishes well inside the budget. It was confirmed by accident
-  when the server was built against the released 1.4.0 package, where `∫ x*ln(x)` overflows
+  when the server was built against the released 1.4.0 package, where `∫ x*ln(x)` overflowed
   the stack inside `IntegrateByPartsPolynomial` and normally takes the process with it. The
   64 MB worker thread contained it, the timeout fired, the call came back as `timeout`, and
   every subsequent request was served normally. That is the exact failure the guard exists
@@ -325,17 +351,28 @@ Both are why `am_integrate` reports `verified: true` for `∫ x*ln(x)` rather th
 - In `am_solve`, `solutions[]` is tidied per root but the raw `result` string is not, so the
   two can disagree cosmetically (`1/2 / (C*f*pi)` vs `--1/2 * 1/pi * 1/C/f`). Prefer
   `solutions[]`.
-- `Simplify` on multivariate rational functions returns the input unreduced and silent —
-  reported as `unchanged`, which means "no progress", not "already simplest".
+- A `status` of `unchanged` means "no progress", not "already simplest".
+- `am_verify_equal` decides on positive real points and then checks the negatives
+  separately; for `sqrt(x^2)` against `x` it answers `equal: true` **with a note** that the
+  two agree only on the positives. The note is the answer — do not repeat the verdict alone.
 
-## Why the local build
+## Which build
 
-The project reference points at `../AngouriMath`, not the released NuGet package, and that is
-load-bearing. On the corpus in `work/`, this branch scores **111/117 with 0 wrong answers and
-0 hangs**; the released build scores 75/117 with 3 wrong answers and 3 hangs, `1e-20` parses
-to `0`, and `FastExpression` was thread-unsafe until #637 (16 threads × 400k calls produced
-one silently wrong number with no exception, and permanent corruption afterwards). A server
-built on the published package would inherit all of it.
+The project reference prefers `../AngouriMath` when it is there and takes the **2.0.0**
+package otherwise. That preference used to be load-bearing: on the corpus in `work/` the
+branch scored **111/117 with 0 wrong answers and 0 hangs** while the released 1.4.0 scored
+75/117 with 3 wrong answers and 3 hangs, `1e-20` parsed to `0`, and `FastExpression` was
+thread-unsafe (16 threads × 400k calls produced one silently wrong number with no exception,
+and permanent corruption afterwards). A server built on 1.4.0 inherited all of it.
+
+2.0.0 is that branch, released, so the choice no longer changes the answers — it only
+decides whether unreleased fixes are picked up between releases. The build prints which one
+it used; read the line rather than assuming.
+
+Two changes in 2.0.0 needed work here rather than just a version bump: `Latexise` became
+`Latexize`, and the target frameworks moved from `net7.0` to `net8.0`/`net10.0`, so a
+`ProjectReference` pinning `net7.0` stops resolving. `BREAKING-CHANGES.md` in the library
+lists the rest.
 
 ## Naming
 

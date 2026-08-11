@@ -13,9 +13,11 @@ namespace AngouriMath.Mcp;
 ///   * a trailing number is an EXPONENT, not a factor: `x2` is x², `2(g+e)3` is 2(g+e)³.
 ///     A model that names a variable `x2`, `v1` or `a0` — completely ordinary naming —
 ///     gets it silently squared. (MathS.cs documents this on ExplicitParsingOnly.)
-///   * an unknown identifier becomes implicit multiplication: `pow(x,y)` lexes as p*o*w(…)
-///     and `arcsinh(x)` as the product `arcsinh * x`. Issue #625; the triage notes record
-///     that this happens "with nothing said".
+///   * an unknown identifier becomes implicit multiplication: `im(z)` is the product
+///     `im * z`, not the imaginary part. AngouriMath 2.0.0 refuses eleven such names by
+///     name — `trunc`, `lcm`, `erf`, `conjugate` and the arc- spellings of the inverse
+///     hyperbolics — so those now fail loudly; the rest still degrade with nothing said,
+///     because refusing every unknown name is refusing `a(b + c)`.
 ///
 /// Both produce a valid parse of a DIFFERENT expression, which is the worst failure class
 /// available: no exception, plausible answer, wrong. Rather than force strict mode on
@@ -28,37 +30,56 @@ public static class Parsing
     public sealed record Outcome(Entity? Entity, List<string> Warnings, string? Error);
 
     /// <summary>Functions AngouriMath's grammar actually knows. Anything else followed by
-    /// '(' is a variable multiplied by a parenthesised group, not a call.</summary>
+    /// '(' is a variable multiplied by a parenthesised group, not a call.
+    ///
+    /// Every entry is verified by parsing `name(x)` against the grammar and reading what
+    /// came back — not from the release notes, which describe this surface in two passes
+    /// (`floor` and its kind are refused in one section and added in a later one). Re-run
+    /// that probe after a library upgrade: a name that has become a function makes this
+    /// whitelist emit a warning on correct input, and a name that has stopped being one
+    /// makes it swallow the warning that matters.</summary>
     private static readonly HashSet<string> KnownFunctions = new(StringComparer.OrdinalIgnoreCase)
     {
         "sin", "cos", "tan", "cotan", "cot", "sec", "cosec", "csc",
         "arcsin", "arccos", "arctan", "arccotan", "arccot", "arcsec", "arccosec", "arccsc",
         "sinh", "cosh", "tanh", "cotanh", "coth", "sech", "cosech", "csch",
+        // The inverse hyperbolics are AREA functions, and 2.0.0 refuses the arc- spellings
+        // by name rather than accepting them. `arcsinh` and its five relatives are therefore
+        // NOT here: they raise UnrecognizedFunctionParseException, whose message names these
+        // spellings, so the caller is told more than a warning could say.
         "arsinh", "arcosh", "artanh", "arcotanh", "arsech", "arcosech",
-        "arcsinh", "arccosh", "arctanh", "arccotanh",
-        "log", "ln", "sqrt", "cbrt", "sqr", "abs", "signum", "sgn",
-        // `pow` is genuinely a function ON THIS BRANCH — issue #625 fixed it, and
-        // pow(x,y) now parses to x^y. On the released package it still lexes as p*o*w,
-        // so this entry is correct here and would be wrong against the NuGet build.
+        "asinh", "acosh", "atanh", "acotanh", "asech", "acosech",
+        "arsh", "arch", "arth", "arcth",
+        "log", "ln", "sqrt", "cbrt", "sqr", "abs", "signum", "sgn", "sign",
+        // New in AngouriMath 2.0.0. Each of these was a silent implicit multiplication
+        // before, which is what the unknown-function warning existed to catch; warning
+        // about them now would fire on correct input.
+        "exp", "log10", "log2",
+        "floor", "ceil", "ceiling", "round", "min", "max", "gcd", "factorial",
+        // `pow(x, y)` parses to x^y as of 2.0.0.
         "pow",
         "gamma", "phi", "derivative", "integral", "limit",
         "limitleft", "limitright", "piecewise", "provided", "apply", "lambda",
-        "domain", "intersect", "and", "or", "not", "xor", "impl",
-        // Verified by parsing `name(x)` against the actual grammar. Names that error on
-        // wrong arity are fine to list — the failure is loud. Deliberately ABSENT, because
-        // they silently degrade into a variable times a bracket: factorial, elementin,
-        // union, setsubtraction, min, max. Listing those suppressed the very warning this
-        // whitelist exists to raise, which is how `factorial(10)` quietly became a variable.
+        "domain", "intersect", "and", "or", "not", "xor",
+        // Names that error on wrong arity are fine to list — the failure is loud, and the
+        // warning path only runs on a successful parse. Deliberately ABSENT, because they
+        // still degrade silently into a variable times a bracket: elementin, union,
+        // setsubtraction, impl, re, im. Listing one of those suppresses the very warning
+        // this whitelist exists to raise — `impl` was listed, and `impl(a, b)` was quietly
+        // becoming `impl * (a, b)` with nothing said.
     };
 
-    /// <summary>Names people reach for that this grammar spells differently.</summary>
+    /// <summary>Names people reach for that this grammar spells differently, and that parse
+    /// as something else rather than failing. A name the library refuses outright is not
+    /// here: its own exception says more than this table could.</summary>
     private static readonly Dictionary<string, string> Misspellings = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["factorial"] = "postfix '!' — write 10! rather than factorial(10)",
-        ["exp"] = "'e^x' — there is no exp function",
-        ["mod"] = "there is no modulus operator or function in this grammar",
-        ["min"] = "not available; use piecewise or a comparison",
-        ["max"] = "not available; use piecewise or a comparison",
+        ["union"] = @"the infix '\/' — write 'A \/ B'",
+        ["setsubtraction"] = @"the infix '\' — write 'A \ B'",
+        ["elementin"] = "the infix 'in' — write 'x in A'",
+        ["impl"] = "'->' or 'implies' — write 'a -> b'",
+        ["re"] = "not in this grammar; there is no real-part function",
+        ["im"] = "not in this grammar; there is no imaginary-part function",
     };
 
     // The alphabet AngouriMath's VARIABLE rule actually accepts (AngouriMath.g:442): ASCII
@@ -88,9 +109,9 @@ public static class Parsing
 
     public static Outcome Parse(string source, bool strict = false)
     {
-        // Scoped, auto-reverting. Note MathS.Settings is process-global (a KeyStack over a
-        // plain List, no thread affinity), so this is only safe because the server handles
-        // one request at a time. See README.
+        // Scoped, auto-reverting. As of AngouriMath 2.0.0 the scope is an AsyncLocal and
+        // follows the call rather than the thread, so it is correct even under concurrency;
+        // before that it was safe only because the server handles one request at a time.
         using var _ = MathS.Settings.ExplicitParsingOnly.Set(strict);
 
         // MathS.Parse is the non-throwing parser: it returns a reason rather than raising,
@@ -106,14 +127,28 @@ public static class Parsing
     private static List<string> Warnings(string source)
     {
         var warnings = new List<string>();
+        var calls = CallLike.Matches(source);
 
-        if (TrailingDigit.IsMatch(source))
+        // A known function's own name is not an implicit power, even when it ends in a
+        // digit. `log2(8)` is the base-2 logarithm as of 2.0.0, and the `g2` inside it is
+        // not the `x2` trap — warning there fires on correct input, which is how a caller
+        // learns to ignore the channel. Spans rather than a special case for `log2` and
+        // `log10`, so the next function name carrying a digit needs no second fix.
+        var functionNameSpans = calls
+            .Where(m => KnownFunctions.Contains(m.Groups[1].Value))
+            .Select(m => (Start: m.Groups[1].Index, End: m.Groups[1].Index + m.Groups[1].Length))
+            .ToList();
+
+        var implicitPower = TrailingDigit.Matches(source).Any(m =>
+            !functionNameSpans.Any(s => m.Index >= s.Start && m.Index + m.Length <= s.End));
+
+        if (implicitPower)
             warnings.Add(
                 "implicit-power: a number directly after an identifier is an EXPONENT, " +
                 "not a factor — 'x2' parses as x^2. Check the 'parsed' field; write 'x*2' " +
                 "if you meant multiplication, and avoid variable names ending in a digit.");
 
-        foreach (Match m in CallLike.Matches(source))
+        foreach (Match m in calls)
         {
             var name = m.Groups[1].Value;
             if (KnownFunctions.Contains(name)) continue;

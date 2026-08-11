@@ -1,4 +1,5 @@
 using AngouriMath;
+using AngouriMath.Core.Exceptions;
 
 namespace AngouriMath.Mcp;
 
@@ -56,16 +57,29 @@ public static class Guard
         }
 
         if (failure is not null)
-            return new Outcome<T>(default, "failed", Describe(failure));
+            return new Outcome<T>(default, StatusFor(failure), Describe(failure));
 
         return new Outcome<T>(result, "ok", null);
     }
 
+    private static Exception Unwrap(Exception e) =>
+        e is AggregateException agg && agg.InnerException is not null ? agg.InnerException : e;
+
+    /// <summary>
+    /// A refusal is not a failure. AngouriMath 2.0.0 gives its known gaps their own type —
+    /// a cubic inequality, or an inversion that would need a set-valued answer, used to
+    /// raise AngouriBugException and *ask to be reported*, which is indistinguishable from
+    /// a real defect both to a caller and to whoever reads the issue tracker. Where the
+    /// library now says "I have no rule for this", say `declined`, the same word this
+    /// server already uses for an unevaluated integral. `failed` then keeps its meaning:
+    /// bad input, or something that genuinely went wrong.
+    /// </summary>
+    private static string StatusFor(Exception e) =>
+        Unwrap(e) is NotSufficientlySupportedException ? "declined" : "failed";
+
     private static string Describe(Exception e)
     {
-        var inner = e is AggregateException agg && agg.InnerException is not null
-            ? agg.InnerException
-            : e;
+        var inner = Unwrap(e);
         // AngouriBugException is an internal assertion (e.g. compiling a matrix, #425/#526).
         // Surfacing the type name tells the caller "library defect", not "bad input".
         return $"{inner.GetType().Name}: {inner.Message}";

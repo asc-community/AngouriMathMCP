@@ -13,16 +13,20 @@
   </PropertyGroup>
 
   <!--
-    Two ways to get AngouriMath, and the choice matters more than usual.
+    Two ways to get AngouriMath. Until 2.0.0 these were not interchangeable — the released
+    1.4.0 package scored 75/117 on the corpus against the branch's 111/117, with wrong
+    answers and hangs — so the choice had to be reported loudly. 2.0.0 is that branch, so the
+    package is now the baseline and the sibling checkout is only ahead of it between releases.
 
-    Preferred: a sibling checkout, used automatically when present. That development branch
-    scores 111/117 on the corpus in the companion triage workspace, with no wrong answers
-    and no hangs.
+    Preferred: a sibling checkout at ../AngouriMath, used automatically when present, so that
+    this server exercises unreleased fixes.
 
-    Fallback: the released 1.4.0 package, so cloning this repo on its own still builds. That
-    build scores 75/117 with 3 wrong answers and 3 hangs, `1e-20` parses to `0`, and
-    FastExpression is not thread-safe. The server runs, but several behaviours documented in
-    the README and in the angourimath://reliability resource will not hold.
+    Fallback: the released 2.0.0 package, so cloning this repo on its own builds and behaves
+    the same. Everything documented in the README and in the angourimath://reliability
+    resource holds on both.
+
+    The framework has to be pinned: the library multi-targets, and an unpinned ProjectReference
+    silently fails to resolve. net7.0 is gone as of 2.0.0 — net8.0 and net10.0 replace it.
   -->
   <PropertyGroup>
     <LocalAngouriMath>$(MSBuildThisFileDirectory)../../../AngouriMath/Sources/AngouriMath/AngouriMath.csproj</LocalAngouriMath>
@@ -31,18 +35,18 @@
 
   <ItemGroup Condition="'$(UseLocalAngouriMath)' == 'true'">
     <ProjectReference Include="$(LocalAngouriMath)">
-      <SetTargetFramework>TargetFramework=net7.0</SetTargetFramework>
+      <SetTargetFramework>TargetFramework=net10.0</SetTargetFramework>
     </ProjectReference>
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseLocalAngouriMath)' != 'true'">
-    <PackageReference Include="AngouriMath" Version="1.4.0" />
+    <PackageReference Include="AngouriMath" Version="2.0.0" />
   </ItemGroup>
 
   <Target Name="ReportAngouriMathSource" BeforeTargets="Build">
     <Message Condition="'$(UseLocalAngouriMath)' == 'true'" Importance="high"
              Text="AngouriMathMCP: building against the local AngouriMath checkout." />
-    <Warning Condition="'$(UseLocalAngouriMath)' != 'true'"
-             Text="AngouriMathMCP: no sibling AngouriMath checkout found, falling back to the released 1.4.0 package. Expect known wrong answers and hangs; see README." />
+    <Message Condition="'$(UseLocalAngouriMath)' != 'true'" Importance="high"
+             Text="AngouriMathMCP: no sibling AngouriMath checkout found, building against the released 2.0.0 package." />
   </Target>
 </Project>

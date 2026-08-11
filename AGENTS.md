@@ -12,7 +12,7 @@ Read `README.md` for what it does and `UPSTREAM.md` for what deliberately isn't 
 
 ```sh
 dotnet build -c Release src/AngouriMath.Mcp
-./test/smoke.sh          # 36 cases over real stdio JSON-RPC, 29 with assertions
+./test/smoke.sh          # 37 cases over real stdio JSON-RPC, 30 with assertions
 ./test/scenarios.sh      # 20 realistic use-cases; read the output, it is not asserted
 src/AngouriMath.Mcp/bin/Release/net10.0/angourimath-mcp --selftest
 ```
@@ -20,21 +20,30 @@ src/AngouriMath.Mcp/bin/Release/net10.0/angourimath-mcp --selftest
 `--selftest` is the quickest signal: eleven identities that must hold, plus a re-check of
 every documented defect.
 
-## The trap that will catch you first
+## Which AngouriMath you built against
 
-The build uses a **sibling AngouriMath checkout at `../AngouriMath` when one exists, and
-silently falls back to the released 1.4.0 NuGet package when it does not** (it prints a
-warning; read it). Those two builds behave differently, and `test/smoke.sh` asserts the
-behaviour of the development branch.
+The build uses a **sibling AngouriMath checkout at `../AngouriMath` when one exists, and the
+released 2.0.0 NuGet package when it does not**. It prints which; read the line.
 
-Against the release, two assertions fail *legitimately*:
+This used to be the first trap in the repo — the fallback was 1.4.0, which behaves
+differently enough that two assertions in `test/smoke.sh` failed against it legitimately
+(`integrate x*ln(x)` overflowed the stack, `limit (1+x)^(1/x) -> 0` answered `1` instead of
+`e`), and CI was build-only because of it. 2.0.0 is the branch those tests were written
+against, so the two builds now agree, the suite runs in CI, and a red result means a defect
+here.
 
-- `integrate x*ln(x)` times out — it overflows the stack there
-- `limit (1+x)^(1/x) -> 0` answers `1` instead of `e`
+They will diverge again as soon as anything lands upstream after 2.0.0. When a test starts
+failing, still check which build you have before concluding anything — and **do not weaken
+an assertion to make it pass**. Several assertions in that file exist because the answers
+they pin were once wrong.
 
-**Do not "fix" those by weakening the assertions.** They are real coverage. Check which
-AngouriMath you built against before concluding anything about a test failure. This is also
-why CI is build-only.
+Upgrading the library is not a version bump. `Latexise` became `Latexize` and the target
+frameworks moved off `net7.0` (a `ProjectReference` pinning it stops resolving) — but the
+part that needs judgement is `Parsing.KnownFunctions`. Ten names became real functions in
+2.0.0 and every one of them would have made the unknown-function warning fire on correct
+input. **Re-probe the grammar after an upgrade**, by parsing `name(x)` for each entry and
+reading what came back; the release notes describe that surface in two passes and taking the
+first one is wrong.
 
 ## Invariants
 
@@ -51,9 +60,14 @@ wrong answer. See `Guard.IsDeclined`.
 **Nothing but JSON-RPC goes to stdout.** Diagnostics go to stderr. One stray `Console.Write`
 corrupts the stream and the host reports the server as failed.
 
-**Requests stay serialized.** `MathS.Settings` stores values in a process-global `KeyStack`
-with no thread affinity, so two concurrent calls with different parse settings interfere.
-Parallelising the request loop is a correctness bug, not an optimisation.
+**Requests stay serialized — but no longer because they must.** `MathS.Settings` kept its
+values in `[ThreadStatic]` fields until AngouriMath 2.0.0, so two concurrent calls with
+different parse settings interfered and parallelising was a correctness bug. 2.0.0 moved
+them to an `AsyncLocal`: a scope follows the call, including onto the worker thread `Guard`
+starts, and a sibling call cannot see it. That was verified here, not taken from the release
+notes. So concurrency is unblocked — and it is still not done, because a stdio server sees
+one request at a time and the change deserves its own measurement rather than arriving as a
+side effect of a library upgrade. If you do it, that is the invariant to re-verify first.
 
 **Every AngouriMath call goes through `Guard.Run`.** Not defensive habit: some inputs
 overflow the stack inside the library and take the process down. `Guard` runs work on a
@@ -70,6 +84,11 @@ resource assert specific library misbehaviour. One entry (`Factorize(x^2-1)` emi
 `sqrt(1)`) was true of the release and false of the branch, and went stale unnoticed.
 `--selftest` now checks these automatically and reports drift — run it after touching
 anything in that area.
+
+The 2.0.0 upgrade is what that check is for: it caught `exp(x)` and four further claims that
+had become false, including a "known to be WRONG" figure for Ramanujan's constant that the
+release had fixed to 60 correct digits. A stale defect claim is worse than none — it tells a
+caller to distrust a correct answer, and it wastes whoever re-reports it upstream.
 
 ## Scope
 
@@ -90,6 +109,19 @@ new tool needs to earn its place against that. Prefer:
 2. an MCP **prompt** (they cost nothing in tool-list context),
 3. a new tool, last.
 
+The 2.0.0 upgrade is a worked example. Three new library features reached callers, and none
+of them became a tool:
+
+- **`mod`** needed no code at all. The parser gained the keyword, so `17 mod 5` works through
+  every tool that parses an expression. Note it is *floored*: `-7 mod 3` is `2`. Same for
+  `floor`, `ceil`, `round`, `min`, `max` and `gcd` — `am_solve` will now do
+  `floor(x) - 3 = 0`, and that reach came from correcting the parse whitelist.
+- **Numeric definite integration** (`Entity.DefiniteIntegral`) became a field on an existing
+  response, `numeric_definite_value` on `am_integrate`.
+- **Matrix range slicing** (`a[1.., ..]`) was **declined**. It is ergonomics for a C# caller;
+  here the matrix arrives as JSON rows from the caller, who can already slice it locally, so
+  the operation would cost description context and buy nothing.
+
 Tool descriptions are routing prompts, not documentation. Say *when* to call it, and where a
 model would wrongly trust itself, say so explicitly — that is what `CallEvenIfConfident` is
 for.
@@ -108,6 +140,6 @@ Every response carries a `status` (`solved` / `unchanged` / `declined` / `suspec
 
 ## Before claiming done
 
-Run `./test/smoke.sh` **and** `--selftest`, and say which AngouriMath you built against. A
-green suite against the NuGet fallback is not the same claim as a green suite against the
-development branch.
+Run `./test/smoke.sh` **and** `--selftest`, and say which AngouriMath you built against. The
+two agree at 2.0.0 and both suites were confirmed green against each; they will not agree
+once anything lands upstream, so name the build rather than assuming it does not matter.

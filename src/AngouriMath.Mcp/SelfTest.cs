@@ -1,4 +1,5 @@
 using AngouriMath;
+using AngouriMath.Extensions;
 using static AngouriMath.Entity;
 
 namespace AngouriMath.Mcp;
@@ -57,13 +58,33 @@ public static class SelfTest
     private static readonly (string Name, Func<bool> StillBroken, string Documented)[] Defects =
     [
         ("Simplify(sqrt(x^2))", () => Value("sqrt(x^2)") != "abs(x)",
-            "returns x rather than abs(x)"),
-        ("exp(x) parsing", () =>
+            "left as written rather than reduced to abs(x)"),
+        ("MathS.Equations rejects an equality", () =>
         {
-            var outcome = Parsing.Parse("exp(x)");
-            return outcome.Entity is not null
-                   && outcome.Entity.Vars.Any(v => v.Stringize() == "exp");
-        }, "parses as exp * x, a silent multiplication"),
+            try
+            {
+                MathS.Equations("x + y = 3".ToEntity(), "x - y = 1".ToEntity()).Solve("x", "y");
+                return false;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }, "throws on an Equalsf; each equation must be given in '= 0' form"),
+        ("DefiniteIntegral is a first-order rule", () =>
+        {
+            // Halving the step count roughly doubles the error iff the rule is first order.
+            // Numeric.TryDefiniteIntegral's step counts, its error estimate and the caveat
+            // am_integrate prints all assume that; a rule of higher order would make the
+            // reported error bound far too pessimistic and the wording wrong.
+            var e = "e^(x^2)".ToEntity();
+            var v = MathS.Var("x");
+            var coarse = e.DefiniteIntegral(v, 0, 1, 500).RealPart.EDecimal.ToDouble();
+            var fine = e.DefiniteIntegral(v, 0, 1, 1000).RealPart.EDecimal.ToDouble();
+            var finer = e.DefiniteIntegral(v, 0, 1, 2000).RealPart.EDecimal.ToDouble();
+            var ratio = Math.Abs(fine - coarse) / Math.Abs(finer - fine);
+            return ratio is > 1.7 and < 2.3;
+        }, "error halves per doubling, so ~4 digits at 4000 steps; Simpson would give more"),
         ("integral of x^4*(1-x)^4/(1+x^2)", () =>
         {
             var outcome = Parsing.Parse("x^4*(1-x)^4/(1+x^2)");

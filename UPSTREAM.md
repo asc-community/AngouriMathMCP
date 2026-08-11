@@ -7,7 +7,7 @@ second, worse copy of the library.
 
 ## Deliberately NOT built here
 
-**A LaTeX input parser.** AngouriMath emits LaTeX via `Latexise()` and cannot read it back.
+**A LaTeX input parser.** AngouriMath emits LaTeX via `Latexize()` and cannot read it back.
 That asymmetry is a library gap, and a parser is a grammar change — it belongs next to the
 existing ANTLR grammar, not in a regex shim here. It is the most likely first-contact
 failure for an LLM caller, since models emit LaTeX constantly, so it is worth requesting
@@ -42,18 +42,33 @@ reports them under `dropped_guards` in the meantime.
 
 ## Defects worth reporting upstream
 
-Re-verified against the development branch, not the released package — a claim that only
-reproduces on the release is not worth reporting. `Factorize(x^2 - 1)` was dropped from this
-list for exactly that reason: it returns `(x - sqrt(1)) * (x + sqrt(1))` on 1.4.0 but a clean
-`(x - 1) * (x + 1)` here.
+Re-verified against AngouriMath 2.0.0, which is now both the released package and the
+sibling checkout — a claim measured on an older build is not worth reporting.
+`--selftest` re-checks each row on every run; three entries were dropped at the 2.0.0
+upgrade because the release fixed them, which is the whole reason that check exists.
 
 | Observed | Note |
 |---|---|
-| `Simplify(sqrt(x^2))` returns `x`, not `abs(x)` | The library then contradicts its own evaluator, which gives `2` at `x = -2`. A soundness bug. |
-| `e^(pi*sqrt(163))` accurate to only ~23 significant digits | Stable at the wrong value, so it reads as converged. Every component — `pi`, `sqrt(163)`, `pi*sqrt(163)`, `e^pi`, `e^(30*sqrt(2))` — is correct to 50 digits, and the literal-exponent form `e^40.109...` is correct. Only the composed form fails. Mechanism not isolated. |
-| `MathS.Equations(...)` throws `FutureReleaseException` on an equality | It wants each equation in `= 0` form; passing an `Equalsf` throws rather than normalising. This server rewrites `a = b` to `a - b`. **Observed on 1.4.0 and not re-checked on the branch**, because the normalisation here now hides it. |
+| `Simplify(sqrt(x^2))` is left as written, not reduced to `abs(x)` | No longer the soundness bug it was — 2.0.0 stopped answering `x`, which was wrong for every negative. What remains is a gap: writing `abs` needs to know the expression is real, which the codomain of [#719](https://github.com/asc-community/AngouriMath/issues/719) can now say and the simplifier does not yet read. |
+| `MathS.Equations(...)` throws on an equality | It wants each equation in `= 0` form; passing an `Equalsf` raises `NotSufficientlySupportedException` rather than normalising `a = b` to `a - b`, which is a rewrite it could do itself. This server does it instead. Re-checked on 2.0.0 by `--selftest`; the exception type changed with the release, the behaviour did not. |
 | `Integrate` declines `x^4*(1-x)^4/(1+x^2)` | It handles the same function once the polynomial division is done by hand, so the gap is dividing a rational function whose numerator outranks its denominator. |
-| Unknown identifiers become implicit multiplication silently | `exp(x)` parses as `exp * x`. A parse that succeeds and means something else is the worst failure class; a warning or strict default would help every consumer. |
+| `Entity.DefiniteIntegral` is a first-order rule | New in 2.0.0, and it is a rectangle rule: the error halves per doubling of the step count, so 4000 steps buy about four digits of `∫[0,1] e^(x^2)` at ~150 ms. Simpson's rule is the same amount of code and would give roughly eight. It also samples both endpoints, so a convergent integral with a singular endpoint — `∫[0,1] sin(x)/x`, `∫[0,1] ln(x)` — returns `NaN` rather than a value. Both are worth raising; this server runs it twice and reports only the agreed digits in the meantime. |
+| An unknown identifier still becomes implicit multiplication silently | 2.0.0 closed most of this: `exp`, `log10`, `log2`, `pow`, `floor`, `ceil`, `round`, `min`, `max` and `gcd` became real functions, and eleven names the library does not have are now refused by name. The general case remains — `im(z)` is `im * z` — and cannot be closed without refusing `a(b + c)`, so a warning or a strict default is still the only answer. This server warns. |
+
+## Fixed upstream, kept here as a record
+
+Each of these was on the list above and reproduced no longer at the 2.0.0 upgrade. Listed
+so that nobody re-reports them, and so the cost of not re-measuring is visible.
+
+- **`Factorize(x^2 - 1)` emitting `sqrt(1)`.** Dropped before 2.0.0: true of 1.4.0, false
+  of the branch, and it went stale unnoticed. This is why `--selftest` exists.
+- **`exp(x)` parsing as `exp * x`.** `exp` is the exponential as of 2.0.0.
+- **`e^(pi*sqrt(163))` accurate to only ~23 significant digits.** Ramanujan's constant now
+  evaluates to `262537412640768743.999999999999250072597...`, correct to 60 digits and on
+  the right side of the integer, so the near-miss the number is famous for reproduces.
+- **`Simplify` leaving a multivariate rational function uncancelled.**
+  `(x^2+2xy+y^2)/(x^2-y^2)` now reduces to `(x + y)/(x - y) provided not x + y = 0`.
+- **Limits needing factorial asymptotics.** `lim x→∞ (x!/x^x)^(1/x)` is `1/e`, by Stirling.
 
 ## Correctly belongs here
 

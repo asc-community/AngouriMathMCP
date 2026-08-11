@@ -169,8 +169,83 @@ public static class Numeric
     public static Entity Strip(Entity e) =>
         e.Replace(node => node is Providedf provided ? provided.Expression : node);
 
+    /// <summary>A quadrature result: the value, and how far it can be trusted.</summary>
+    public readonly record struct Quadrature(double Value, double ErrorEstimate, int Digits);
+
+    // Step counts for the two runs. AngouriMath's rule is first order — measured, by
+    // doubling: the error of `∫[0,1] e^(x^2)` halves at every doubling of the step count
+    // rather than falling by four — so the gap between a run and its double IS the error of
+    // the coarser one, to a constant. Two runs at these counts cost about a third of a
+    // second together, which is inside the request budget; going further buys one digit per
+    // quadrupling and is not worth the wall clock.
+    private const int CoarseSteps = 2_000;
+    private const int FineSteps = 4_000;
+
+    /// <summary>
+    /// Numeric definite integration via `Entity.DefiniteIntegral`, which AngouriMath 2.0.0
+    /// added, run TWICE so that the answer arrives with an error estimate rather than as a
+    /// hundred digits of false precision.
+    ///
+    /// That precision is the whole reason this is not a one-line call. The library returns
+    /// an arbitrary-precision decimal whatever the step count, so `∫[0,1] e^(x^2)` prints as
+    /// 1.4666222366253148581140206684127892598 when the true value is 1.46265174590718 — a
+    /// figure that is wrong in its third decimal and reads as converged to thirty. Reporting
+    /// only the digits two runs agree on is exactly the job this server exists to do.
+    ///
+    /// Returns null when the integrand cannot be sampled: the rule evaluates at the
+    /// endpoints, so a singularity at either — `∫[0,1] sin(x)/x`, `∫[0,1] ln(x)`, both of
+    /// which converge — comes back NaN and must be declined rather than reported.
+    /// </summary>
+    public static Quadrature? TryDefiniteIntegral(Entity integrand, Variable variable,
+        double from, double to)
+    {
+        var coarse = Sample(integrand, variable, from, to, CoarseSteps);
+        var fine = Sample(integrand, variable, from, to, FineSteps);
+        if (coarse is not { } c || fine is not { } f) return null;
+
+        var error = Math.Abs(f - c);
+
+        // Digits justified by the error, relative to the magnitude of the answer: an error
+        // of 2e-4 on a value near 1.46 pins three decimals, and the fourth is noise. One
+        // digit is dropped on purpose — the estimate is itself an estimate.
+        var scale = Math.Max(Math.Abs(f), double.Epsilon);
+        var digits = error <= 0
+            ? 15
+            : (int)Math.Floor(-Math.Log10(error / scale)) - 1;
+        digits = Math.Clamp(digits, 0, 15);
+
+        return new Quadrature(f, error, digits);
+    }
+
+    private static double? Sample(Entity integrand, Variable variable,
+        double from, double to, int steps)
+    {
+        try
+        {
+            var value = integrand.DefiniteIntegral(variable, from, to, steps);
+            var real = value.RealPart.EDecimal.ToDouble();
+            var imaginary = value.ImaginaryPart.EDecimal.ToDouble();
+            if (double.IsNaN(real) || double.IsInfinity(real)) return null;
+            // A real integrand integrated over a real interval that comes back complex means
+            // the rule wandered off the domain; that is not an answer to report.
+            if (double.IsNaN(imaginary) || Math.Abs(imaginary) > 1e-12) return null;
+            return real;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>Real part as a double, or null when it is not numerically evaluable.</summary>
     public static double? AsNumber(Entity e) => AsDouble(e)?.Real;
+
+    /// <summary>
+    /// As <see cref="AsNumber"/>, but null rather than the real part when the value is
+    /// complex. An integration bound of `i` must not quietly become `0`.
+    /// </summary>
+    public static double? AsRealNumber(Entity e) =>
+        AsDouble(e) is { } value && Math.Abs(value.Imaginary) < 1e-12 ? value.Real : null;
 
     /// <summary>Is this expression structurally zero once domain guards are removed?</summary>
     public static bool IsZero(Entity e)

@@ -69,27 +69,34 @@ public static class Resources
 
         **2. An unknown function name becomes a multiplication.**
 
-        `pow(x, y)` is not a function here — it lexes as `p*o*w(...)`. `arcsinh(x)` becomes
-        the product `arcsinh * x`. The parse succeeds and produces a different expression.
+        `im(z)` is not a function here — it is the product `im * z`. The parse succeeds and
+        produces a different expression. AngouriMath 2.0.0 narrowed this a long way, but it
+        cannot be closed: refusing every unknown name would refuse `a(b + c)`.
 
         Known functions: `sin cos tan cotan sec cosec`, `arcsin arccos arctan arccotan`,
-        `sinh cosh tanh cotanh sech cosech`, `arsinh arcosh artanh arcotanh`,
-        `ln log sqrt cbrt sqr abs signum gamma factorial phi`,
+        `sinh cosh tanh cotanh sech cosech`, the inverse hyperbolics as *area* functions
+        (`arsinh asinh arsh` and their relatives — **not** `arcsinh`, which is refused),
+        `ln log log2 log10 exp pow sqrt cbrt sqr abs signum sign gamma factorial phi`,
+        `floor ceil ceiling round min max gcd`,
         `derivative integral limit piecewise provided apply lambda`.
 
         ## Spellings worth knowing (verified against the grammar, not guessed)
 
         | You might write | Reality |
         |---|---|
-        | `factorial(10)` | **silently becomes a variable.** Use postfix: `10!` |
-        | `exp(x)`        | **silently becomes `exp * x`.** Write `e^x` |
-        | `min(a,b)`, `max(a,b)` | silently become variables. Use `piecewise` |
-        | `pow(x,y)`      | works *here* (issue #625) but lexes as `p*o*w` on the release |
-        | `mod`, `%`      | no modulus in this grammar at all |
-        | `log(2, 8)`     | correct — base first, then argument |
+        | `exp(x)`, `log2(x)`, `log10(x)` | correct since 2.0.0 — each was a silent multiplication before |
+        | `floor`, `ceil`, `round`, `min`, `max`, `gcd`, `factorial`, `pow` | all real functions since 2.0.0 |
+        | `arcsinh(x)` | **refused.** The inverse hyperbolics are area functions: write `arsinh`, `asinh` or `arsh` |
+        | `trunc`, `lcm`, `erf`, `conjugate` | refused by name — the library has none of them |
+        | `im(z)`, `re(z)` | **silently become `im * z`.** There is no real- or imaginary-part function |
+        | `union(A,B)`, `elementin(x,A)` | silently become variables. Use the infix `A \/ B`, `x in A` |
+        | `7 mod 3` | correct since 2.0.0, and it is FLOORED: `-7 mod 3` is `2`, not `-1` |
+        | `7 % 3` | a parse error. `%` stays free to mean percent |
+        | `mod` as a variable name | a parse error since 2.0.0 — `mod` is a keyword. Rename it |
+        | `log(2, 8)` | correct — base first, then argument |
 
-        The "silently becomes a variable" cases are the dangerous ones: they parse, and they
-        mean something else. Anything else followed by `(` gets a warning.
+        The "silently become" cases are the dangerous ones: they parse, and they mean
+        something else. Anything else followed by `(` gets a warning.
 
         ## Statements
 
@@ -152,15 +159,17 @@ public static class Resources
         | 6¹ + 6², and also the sum of the first six even numbers | `am_evaluate  6^1 + 6^2` |
         | The rainbow really is at 42°: minimise deviation through a raindrop | `am_solve ['(4/3)^2 - 1 = 3*c^2','c > 0'] for c` → `sqrt(7/27)`, giving 42.03° |
 
-        ## Known to be WRONG here — do not quote these
+        ## Ramanujan's constant, which this build gets right
 
-        - `e^(pi*sqrt(163))` (Ramanujan's constant) should be
-          `262537412640768743.99999999999925...`, sitting 7.5e-13 below an integer. This
-          build returns `...744.000000000024` at 30 digits — on the wrong side of the integer,
-          so the near-miss that makes the number famous is not reproduced. The exact wrong
-          value shifts between builds, which is itself a sign the computation is unstable. Every component evaluates
-          correctly; only the composed form fails.
-        - `sqrt(x^2)` simplifies to `x` rather than `abs(x)`.
+        `e^(pi*sqrt(163))` is `262537412640768743.99999999999925007...`, sitting 7.5e-13
+        below an integer for a reason from class field theory. Ask for enough digits and the
+        near-miss reproduces. Older builds returned `...744.000000000024`, on the wrong side
+        of the integer, so if you have seen that figure quoted from this server, it is stale.
+
+        ## Where the answer is honest but not what you asked
+
+        - `sqrt(x^2)` is left as written rather than reduced to `abs(x)`. It is not reduced
+          to `x` either — that was wrong for every negative and was fixed in 2.0.0.
 
         ## Beyond this server
 
@@ -178,19 +187,19 @@ public static class Resources
 
         ## What this server is running against
 
-        **A work-in-progress development branch, not a released version.** Fixes are actively
-        being written and proposed upstream, so behaviour here differs from the published
-        AngouriMath package and will keep changing. Two consequences:
+        **AngouriMath 2.0.0**, released. Until that release this server ran against an
+        unreleased branch that behaved measurably better than the published package, and this
+        section warned about the gap; the branch is the release now, so a result here is a
+        result anyone gets.
 
-        - Do not assume a result you get here matches what the released library would give.
-          Problems that hang or answer wrongly on the release are fixed on this build.
-        - Conversely, the figures below are a snapshot. If something contradicts them, trust
-          the tool's own `status` and `verified` fields over this document, and say so.
+        The figures below are still a snapshot. If something contradicts them, trust the
+        tool's own `status` and `verified` fields over this document, and say so.
 
         Measured against a 117-problem corpus (drawn from SymPy's test suite, the Rubi
         integration suite, and the Gruntz thesis), 20 s budget per problem. Answers are not
         trusted on their face: integrals are checked by differentiating back, equation roots
-        by substituting them in. Current score on this build: **111/117, 0 wrong, 0 hangs**.
+        by substituting them in. Score: **111/117, 0 wrong, 0 hangs** — against 75/117 with
+        3 wrong answers and 3 hangs on 1.4.0.
 
         ## Trustworthy
 
@@ -210,21 +219,25 @@ public static class Resources
           do these in closed form; do not retry or reword.
         - `∫ sqrt(tan(x))`, `∫ x^2/(x^4+1)` — no rule; the second factors only over the
           irrationals.
-        - Limits requiring factorial asymptotics, e.g. `lim x→∞ (x!/x^x)^(1/x)`.
+        Factorial asymptotics are no longer on this list: `lim x→∞ (x!/x^x)^(1/x)` is `1/e`
+        as of 2.0.0, by Stirling.
+
+        A decline from `am_integrate` with `from` and `to` still carries a
+        `numeric_definite_value` for that one interval, rounded to the digits it is good for
+        — roughly four. It is quadrature, not an antiderivative, and it is not verified by
+        differentiating back.
 
         ## Where results mislead
 
-        - **`sqrt(x^2)` simplifies to `x`, not `abs(x)`.** The library then disagrees with
-          itself: evaluating `sqrt(x^2)` at x = -2 gives 2, while the simplified form gives
-          -2. Any simplification that removes an even root over an even power is suspect on
-          the negatives. `am_verify_equal` cross-checks for this and reports
-          `status: conflict`; believe the conflict over the simplification.
-        - **Simplify on multivariate rational functions** returns something equivalent but
-          **unreduced, with no error** — e.g. `(x^2+2xy+y^2)/(x^2-y^2)` is not cancelled.
-          A `status` of `unchanged` means no progress, not "already simplest".
-        - **Simplify is not canonical**: `sqrt(12)+sqrt(27)` may come back as `sqrt(3)*5`
-          while `5*sqrt(3)` is left alone. Two different-looking outputs can be equal — use
+        - **`am_verify_equal` decides on POSITIVE real points**, because correct
+          antiderivatives are full of `ln(x)` and `abs(x)`. So `sqrt(x^2)` against `x` comes
+          back `equal: true` — true on the positives, false at every negative. It is not
+          silent about it: a second pass across the whole real line adds a note saying the
+          two agree only for positive inputs. **Read the note before repeating the verdict.**
+        - **Simplify is not canonical**: `sqrt(12)+sqrt(27)` comes back as `sqrt(3)*5` while
+          `5*sqrt(3)` is left alone. Two different-looking outputs can be equal — use
           `am_verify_equal` rather than comparing strings.
+        - **A `status` of `unchanged` means no progress, not "already simplest".**
         - **Output tidiness** varies. Results are correct but not always in the form a human
           would write. Pass `alternatives: true` to `am_simplify` and pick a nicer form.
         - **Nonlinear systems** can return no solution when one exists (issue #629).

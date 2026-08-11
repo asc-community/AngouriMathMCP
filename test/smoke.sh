@@ -2,8 +2,12 @@
 # End-to-end smoke test: drives the server over real stdio JSON-RPC and checks the answers.
 #
 # Cases are chosen to cover the behaviours that motivated the design, not just the happy
-# path — the two silent-misparse traps, a decline, a verified integral, and the integral
-# that stack-overflows on upstream master.
+# path — the two silent-misparse traps, the names that stopped being traps in AngouriMath
+# 2.0.0 and must no longer warn, a decline, and a verified integral.
+#
+# These assert AngouriMath 2.0.0 behaviour, which is both the released package and the
+# sibling checkout, so a failure here is a real failure rather than a build-source
+# difference. That was not true before 2.0.0.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -21,7 +25,12 @@ call() { # name, json-args
 {
   printf '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}\n'
   call am_parse         '{"expression":"x2 + 1"}'
+  # `exp` and `log2` were both silent implicit multiplications until AngouriMath 2.0.0 and
+  # are real functions now, so the two warnings must stay QUIET on them. Asserted rather
+  # than dropped: a warning that fires on correct input is the failure mode that teaches a
+  # caller to ignore the channel, and `log2(` in particular reads as the `x2` trap.
   call am_parse         '{"expression":"exp(x)"}'
+  call am_parse         '{"expression":"log2(8)"}'
   call am_parse         '{"expression":"2x + 1","strict":true}'
 
   # The implicit-power check must read the grammar rather than ASCII. `1.5e3` is a single

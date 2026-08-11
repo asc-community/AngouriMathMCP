@@ -6,10 +6,11 @@ using AngouriMath.Mcp;
 // MCP stdio transport: newline-delimited JSON-RPC 2.0 on stdin/stdout. Nothing but protocol
 // traffic may go to stdout — diagnostics belong on stderr or they corrupt the stream.
 //
-// Requests are handled strictly one at a time, and that is deliberate rather than lazy:
-// MathS.Settings stores values in a process-global KeyStack with no thread affinity, so two
-// concurrent calls with different parse settings would interfere. Serialising is the honest
-// fix at this scale.
+// Requests are handled strictly one at a time. That was once a correctness requirement:
+// MathS.Settings kept its values in [ThreadStatic] fields, so two concurrent calls with
+// different parse settings interfered. AngouriMath 2.0.0 moved them to an AsyncLocal and a
+// scope now follows the call, so this is no longer load-bearing — a stdio client sends one
+// request at a time anyway. Making the loop concurrent is a change to measure on its own.
 
 Console.OutputEncoding = new UTF8Encoding(false);
 

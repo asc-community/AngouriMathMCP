@@ -15,9 +15,12 @@ jobs:
           dotnet-version: '10.0.x'
       - run: dotnet build -c Release src/AngouriMath.Mcp
 
-      # Deliberately build-only. CI has no sibling AngouriMath checkout, so it builds
-      # against the released 1.4.0 package — on which several assertions in test/smoke.sh
-      # legitimately fail (integrating x*ln(x) overflows the stack there, and the limit of
-      # (1+x)^(1/x) answers 1 instead of e). Running the suite here would report red for a
-      # library difference rather than a defect in this repo.
-      - run: echo "Build OK. Run ./test/smoke.sh locally against a development checkout."
+      # The suite runs here as of AngouriMath 2.0.0. It could not before: CI has no sibling
+      # checkout, so it builds against the released package, and on 1.4.0 several assertions
+      # in test/smoke.sh failed legitimately — integrating x*ln(x) overflowed the stack
+      # there, and the limit of (1+x)^(1/x) answered 1 instead of e. Red meant "a different
+      # library", not "a defect in this repo", which is worse than no signal. 2.0.0 is the
+      # branch these tests were written against, and both suites were confirmed green
+      # against the package before this was switched on.
+      - run: ./test/smoke.sh
+      - run: src/AngouriMath.Mcp/bin/Release/net10.0/angourimath-mcp --selftest

@@ -110,7 +110,9 @@ public static class Tools
             "Integrate an expression symbolically. The answer is ALWAYS verified by " +
             "differentiating it back and comparing numerically; check the 'verified' field. " +
             "If no elementary antiderivative exists the status is 'declined', which is a " +
-            "correct answer, not a failure." + CallEvenIfConfident,
+            "correct answer, not a failure — and when 'from' and 'to' are given, a numeric " +
+            "value for that one interval still comes back in 'numeric_definite_value', " +
+            "rounded to the digits it is actually good for." + CallEvenIfConfident,
             Schema(new JsonObject
             {
                 ["expression"] = Str("Integrand."),
@@ -568,7 +570,7 @@ public static class Tools
             ["status"] = status,
             ["parsed"] = input.Stringize(),
             ["result"] = raw,
-            ["latex"] = result.Latexise(),
+            ["latex"] = result.Latexize(),
         };
 
         if (status == "declined")
@@ -597,6 +599,18 @@ public static class Tools
                 ["note"] = "The call exceeded its budget and was abandoned. Try a simpler " +
                            "form, or accept that this input is out of reach.",
             },
+            // A NotSufficientlySupportedException, which AngouriMath 2.0.0 raises where it
+            // knows it has no rule. Reported with the same word as an unevaluated integral
+            // because it means the same thing to the caller. See Guard.StatusFor.
+            "declined" => new JsonObject
+            {
+                ["status"] = "declined",
+                ["error"] = outcome.Error,
+                ["note"] = "AngouriMath declined this input: it says explicitly that it has " +
+                           "no rule covering this case. That is a limit of the library, not " +
+                           "a wrong answer and not a bug worth reporting — do not retry the " +
+                           "same call, and do not present the message as a result.",
+            },
             _ => Fail(outcome.Error ?? "unknown failure"),
         };
 
@@ -620,7 +634,7 @@ public static class Tools
             ["status"] = "solved",
             ["parsed"] = e.Stringize(),
             ["result"] = e.Stringize(),
-            ["latex"] = e.Latexise(),
+            ["latex"] = e.Latexize(),
             ["free_variables"] = vars,
             ["node_count"] = e.Nodes.Count(),
         };
@@ -752,11 +766,24 @@ public static class Tools
         return FromOutcome(Guard.Run(() =>
         {
             var v = Var(variable!);
+
+            // The numeric route, used only where the symbolic one produced nothing usable.
+            // It is never a substitute for an antiderivative: it answers one interval, to a
+            // handful of digits, and it cannot be verified by differentiating back.
+            Numeric.Quadrature? Quadrature()
+            {
+                if (lower is null || upper is null) return null;
+                if (Numeric.AsRealNumber(lower) is not { } a) return null;
+                if (Numeric.AsRealNumber(upper) is not { } b) return null;
+                if (Numeric.Strip(e).Vars.Any(other => other.Name != v.Name)) return null;
+                return Numeric.TryDefiniteIntegral(e, v, a, b);
+            }
+
             var antiderivative = e.Integrate(v);
 
             // Decline check on the RAW result, before Simplify — see Guard.IsDeclined.
             if (Guard.IsDeclined(antiderivative.Stringize()))
-                return (antiderivative, (bool?)null, (Entity?)null);
+                return (antiderivative, (bool?)null, (Entity?)null, Quadrature());
 
             var tidy = antiderivative.Simplify();
 
@@ -781,7 +808,14 @@ public static class Tools
                 definite = (bare.Substitute(v, upper) - bare.Substitute(v, lower)).Simplify();
             }
 
-            return (tidy, verified, definite);
+            // Only where the exact route came back with nothing to show. A NaN definite
+            // value is the common case: the antiderivative exists but is undefined at a
+            // bound, and a number the caller can use beats `NaN` with a caveat attached.
+            var quadrature = definite is null || Guard.LooksLikeNaN(definite.Stringize())
+                ? Quadrature()
+                : null;
+
+            return (tidy, verified, definite, quadrature);
         }), r =>
         {
             var response = Respond(e, r.Item1, warnings);
@@ -806,13 +840,40 @@ public static class Tools
             if (r.Item3 is { } definite)
             {
                 response["definite_value"] = definite.Stringize();
-                response["definite_latex"] = definite.Latexise();
+                response["definite_latex"] = definite.Latexize();
                 response["definite_caveat"] =
                     "Computed as F(to) - F(from) from the verified antiderivative. That is " +
                     "only valid when the integrand is continuous across the whole interval — " +
                     "it will happily return a finite, wrong number for something like " +
                     "1/x^2 across zero. Check for a singularity between the limits yourself, " +
                     "or ask am_domain_check.";
+            }
+
+            if (r.Item4 is { } q)
+            {
+                // Rounded to the digits two step counts agree on. Printing the library's
+                // full arbitrary-precision output here would be a hundred digits of a
+                // number correct to four, which is the failure this server exists to
+                // prevent — the caller cannot see the step count and would read it as exact.
+                response["numeric_definite_value"] = Math.Round(q.Value, q.Digits)
+                    .ToString("G" + Math.Max(q.Digits + 1, 2),
+                        System.Globalization.CultureInfo.InvariantCulture);
+                response["numeric_definite_error_bound"] = q.ErrorEstimate
+                    .ToString("G3", System.Globalization.CultureInfo.InvariantCulture);
+                response["numeric_definite_caveat"] =
+                    "APPROXIMATE, and produced only because the exact route gave nothing " +
+                    "usable. It is quadrature over 4000 steps, cross-checked against 2000, " +
+                    "and reported to the digits the two agree on — every digit shown is " +
+                    "believed, and there are no more to be had from this call. Unlike the " +
+                    "symbolic answer it is NOT verified by differentiating back. It also " +
+                    "assumes the integrand is finite across the closed interval: the rule " +
+                    "samples both endpoints, so a convergent integral with a singular " +
+                    "endpoint returns nothing here rather than a value.";
+
+                if ((string?)response["status"] == "declined")
+                    response["note"] = (string?)response["note"] +
+                        " A numeric value is given in 'numeric_definite_value' instead; it " +
+                        "answers this one interval and is not an antiderivative.";
             }
 
             return response;
@@ -1466,7 +1527,7 @@ public static class Tools
                     ["status"] = "solved",
                     ["operation"] = "rectangular",
                     ["result"] = rectangular.Stringize(),
-                    ["latex"] = rectangular.Latexise(),
+                    ["latex"] = rectangular.Latexize(),
                 };
                 if (warnings.Count > 0) response["warnings"] = Warn(warnings);
                 return response;
@@ -1532,11 +1593,11 @@ public static class Tools
                     response["result"] = Matrices.Render(m);
                     response["shape_out"] = $"{m.RowCount}x{m.ColumnCount}";
                     response["pretty"] = m.ToString(multilineFormat: true);
-                    response["latex"] = m.Latexise();
+                    response["latex"] = m.Latexize();
                     break;
                 case Entity scalar:
                     response["result"] = scalar.Stringize();
-                    response["latex"] = scalar.Latexise();
+                    response["latex"] = scalar.Latexize();
                     break;
                 case int rank:
                     response["result"] = rank;
@@ -1620,7 +1681,7 @@ public static class Tools
                 ["status"] = declined ? "declined" : "solved",
                 ["shape"] = $"{a.RowCount}x{a.ColumnCount}",
                 ["characteristic_polynomial"] = eigen.CharacteristicPolynomial.Stringize(),
-                ["characteristic_polynomial_latex"] = eigen.CharacteristicPolynomial.Latexise(),
+                ["characteristic_polynomial_latex"] = eigen.CharacteristicPolynomial.Latexize(),
                 ["eigenvalues"] = raw,
             };
 
