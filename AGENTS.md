@@ -23,7 +23,7 @@ every documented defect.
 ## Which AngouriMath you built against
 
 The build uses a **sibling AngouriMath checkout at `../AngouriMath` when one exists, and the
-released 2.0.0 NuGet package when it does not**. It prints which; read the line.
+released 2.1.0 NuGet package when it does not**. It prints which; read the line.
 
 This used to be the first trap in the repo — the fallback was 1.4.0, which behaves
 differently enough that two assertions in `test/smoke.sh` failed against it legitimately
@@ -32,9 +32,14 @@ differently enough that two assertions in `test/smoke.sh` failed against it legi
 against, so the two builds now agree, the suite runs in CI, and a red result means a defect
 here.
 
-They will diverge again as soon as anything lands upstream after 2.0.0. When a test starts
-failing, still check which build you have before concluding anything — and **do not weaken
-an assertion to make it pass**. Several assertions in that file exist because the answers
+**The two diverge whenever the sibling checkout is ahead of the package, and it usually is.**
+At the 2.1.0 bump the sibling here still sat at 2.0.0 while the package had moved on, which is
+the reverse of the usual direction and just as misleading — the selftest for that upgrade was
+therefore run with `-p:UseLocalAngouriMath=false`, against the published package, so that what
+it measured was what a consumer gets.
+
+When a test starts failing, check which build you have before concluding anything — and **do not
+weaken an assertion to make it pass**. Several assertions in that file exist because the answers
 they pin were once wrong.
 
 Upgrading the library is not a version bump. `Latexise` became `Latexize` and the target

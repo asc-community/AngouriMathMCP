@@ -40,7 +40,7 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseLocalAngouriMath)' != 'true'">
-    <PackageReference Include="AngouriMath" Version="2.0.0" />
+    <PackageReference Include="AngouriMath" Version="2.1.0" />
   </ItemGroup>
 
   <Target Name="ReportAngouriMathSource" BeforeTargets="Build">

@@ -42,10 +42,14 @@ reports them under `dropped_guards` in the meantime.
 
 ## Defects worth reporting upstream
 
-Re-verified against AngouriMath 2.0.0, which is now both the released package and the
-sibling checkout — a claim measured on an older build is not worth reporting.
-`--selftest` re-checks each row on every run; three entries were dropped at the 2.0.0
-upgrade because the release fixed them, which is the whole reason that check exists.
+Re-verified against AngouriMath 2.1.0 — a claim measured on an older build is not worth
+reporting. `--selftest` re-checks each row on every run; three entries were dropped at the
+2.0.0 upgrade because the release fixed them, which is the whole reason that check exists.
+
+**Nothing was dropped at 2.1.0**, and that is a measurement rather than an assumption: the
+build was made against the *published* 2.1.0 package rather than the sibling checkout, which
+still sat at 2.0.0 while this was written. All eleven identities hold and all five rows below
+still reproduce. 2.1.0 is a correctness release, and none of what it fixed is on this list.
 
 | Observed | Note |
 |---|---|
