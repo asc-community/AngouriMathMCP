@@ -134,15 +134,14 @@ public static class Matrices
     /// <summary>
     /// Eigenvalues via the characteristic polynomial.
     ///
-    /// The guard-dropping is not cosmetic. Entity.Matrix.Determinant calls GenericTensor's
-    /// DeterminantGaussianSafeDivision, which divides by pivots and leaves a `provided` guard
-    /// for each one. On a symbolic matrix those guards are artefacts of the algorithm, not
-    /// mathematics: the characteristic polynomial of the Pauli X matrix comes back as
-    /// `lambda^2 - 1 provided not lambda = 0`, and [[0,J],[J,0]] yields eigenvalues
+    /// The guard-dropping is not cosmetic. Until AngouriMath 2.5.0, Entity.Matrix.Determinant
+    /// called GenericTensor's DeterminantGaussianSafeDivision, which divides by pivots and left
+    /// a `provided` guard for each one. On a symbolic matrix those guards are artefacts of the
+    /// algorithm, not mathematics: the characteristic polynomial of the Pauli X matrix came
+    /// back as `lambda^2 - 1 provided not lambda = 0`, and [[0,J],[J,0]] yielded eigenvalues
     /// `{J provided not J = 0, -J provided not J = 0}` — both wrong, since those values are
-    /// perfectly valid. GenericTensor also ships the division-free DeterminantLaplace, which
-    /// would emit none of this; until AngouriMath uses it for symbolic entries, we strip the
-    /// guards here and report what was dropped.
+    /// perfectly valid. 2.5.0's determinant leaves none (`lambda^2 - 1`, `lambda^2 - J^2`); the
+    /// stripping stays, and still reports what it dropped, for any routine that pivots.
     /// </summary>
     public static Eigen Compute(Matrix a, Variable lambda)
     {

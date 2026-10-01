@@ -31,6 +31,9 @@
   <PropertyGroup>
     <LocalAngouriMath>$(MSBuildThisFileDirectory)../../../AngouriMath/Sources/AngouriMath/AngouriMath.csproj</LocalAngouriMath>
     <UseLocalAngouriMath Condition="Exists('$(LocalAngouriMath)')">true</UseLocalAngouriMath>
+    <!-- One place for the version, so the reference and the line the build prints cannot
+         disagree again: the message said 2.0.0 through the whole of the 2.1.0 bump. -->
+    <AngouriMathPackageVersion>2.5.0</AngouriMathPackageVersion>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(UseLocalAngouriMath)' == 'true'">
@@ -40,13 +43,13 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseLocalAngouriMath)' != 'true'">
-    <PackageReference Include="AngouriMath" Version="2.1.0" />
+    <PackageReference Include="AngouriMath" Version="$(AngouriMathPackageVersion)" />
   </ItemGroup>
 
   <Target Name="ReportAngouriMathSource" BeforeTargets="Build">
     <Message Condition="'$(UseLocalAngouriMath)' == 'true'" Importance="high"
              Text="AngouriMathMCP: building against the local AngouriMath checkout." />
     <Message Condition="'$(UseLocalAngouriMath)' != 'true'" Importance="high"
-             Text="AngouriMathMCP: no sibling AngouriMath checkout found, building against the released 2.0.0 package." />
+             Text="AngouriMathMCP: building against the released $(AngouriMathPackageVersion) package." />
   </Target>
 </Project>

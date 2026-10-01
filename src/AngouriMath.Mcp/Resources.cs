@@ -131,12 +131,11 @@ public static class Resources
         ## A machine-checked proof that 22/7 > π
 
         The integrand is positive on (0,1), so the integral is positive — which proves the
-        inequality. It needs the polynomial division done by hand first, because the
-        integrator declines the unexpanded rational form:
+        inequality:
 
-        1. `am_verify_equal  x^4*(1-x)^4/(1+x^2)  vs  x^6 - 4*x^5 + 5*x^4 - 4*x^2 + 4 - 4/(1+x^2)`
-        2. `am_integrate  x^6 - 4*x^5 + 5*x^4 - 4*x^2 + 4 - 4/(1+x^2)  dx`  (verifies)
-        3. `am_evaluate  1/7 - 4/6 + 1 - 4/3 + 4 - 4*arctan(1)`  → **exactly `22/7 - pi`**
+        1. `am_integrate  x^4*(1-x)^4/(1+x^2)  dx`  (verifies; the integrator divides the
+           rational function out itself as of AngouriMath 2.5.0)
+        2. `am_evaluate  1/7 - 4/6 + 1 - 4/3 + 4 - 4*arctan(1)`  → **exactly `22/7 - pi`**
 
         ## Near misses — where floating point would lie to you
 

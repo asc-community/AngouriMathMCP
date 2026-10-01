@@ -58,6 +58,14 @@ public static class Parsing
         "floor", "ceil", "ceiling", "round", "min", "max", "gcd", "factorial",
         // `pow(x, y)` parses to x^y as of 2.0.0.
         "pow",
+        // Short and alternative spellings the grammar has accepted at least since 2.1.0, and
+        // which this list missed until the 2.5.0 probe read every name back: `asin(x)` was
+        // being warned about as an unknown function.
+        "asin", "acos", "atan", "asec", "acsc", "acosec", "acot", "acotan",
+        "sh", "ch", "th", "cth", "sch",
+        "acoth", "acsch", "arcoth", "arcsch", "arsch",
+        // New by 2.5.0: a set's cardinality, sums and products, and arg-extrema.
+        "card", "sum", "product", "argmax", "argmin",
         "gamma", "phi", "derivative", "integral", "limit",
         "limitleft", "limitright", "piecewise", "provided", "apply", "lambda",
         "domain", "intersect", "and", "or", "not", "xor",
