@@ -42,27 +42,32 @@ reports them under `dropped_guards` in the meantime.
 
 ## Defects worth reporting upstream
 
-Re-verified against AngouriMath 2.1.0 — a claim measured on an older build is not worth
+Re-verified against AngouriMath 2.5.0 — a claim measured on an older build is not worth
 reporting. `--selftest` re-checks each row on every run; three entries were dropped at the
 2.0.0 upgrade because the release fixed them, which is the whole reason that check exists.
 
-**Nothing was dropped at 2.1.0**, and that is a measurement rather than an assumption: the
-build was made against the *published* 2.1.0 package rather than the sibling checkout, which
-still sat at 2.0.0 while this was written. All eleven identities hold and all five rows below
-still reproduce. 2.1.0 is a correctness release, and none of what it fixed is on this list.
+**Two were dropped at 2.5.0**, measured against the *published* 2.5.0 package rather than the
+sibling checkout: the integral of `x^4*(1-x)^4/(1+x^2)` and the determinant's pivot guards,
+both under "Fixed upstream" below. Nothing was dropped at 2.1.0. All identities hold, the
+integral is now one of them, and the four rows below still reproduce.
 
 | Observed | Note |
 |---|---|
 | `Simplify(sqrt(x^2))` is left as written, not reduced to `abs(x)` | No longer the soundness bug it was — 2.0.0 stopped answering `x`, which was wrong for every negative. What remains is a gap: writing `abs` needs to know the expression is real, which the codomain of [#719](https://github.com/asc-community/AngouriMath/issues/719) can now say and the simplifier does not yet read. |
 | `MathS.Equations(...)` throws on an equality | It wants each equation in `= 0` form; passing an `Equalsf` raises `NotSufficientlySupportedException` rather than normalising `a = b` to `a - b`, which is a rewrite it could do itself. This server does it instead. Re-checked on 2.0.0 by `--selftest`; the exception type changed with the release, the behaviour did not. |
-| `Integrate` declines `x^4*(1-x)^4/(1+x^2)` | It handles the same function once the polynomial division is done by hand, so the gap is dividing a rational function whose numerator outranks its denominator. |
 | `Entity.DefiniteIntegral` is a first-order rule | New in 2.0.0, and it is a rectangle rule: the error halves per doubling of the step count, so 4000 steps buy about four digits of `∫[0,1] e^(x^2)` at ~150 ms. Simpson's rule is the same amount of code and would give roughly eight. It also samples both endpoints, so a convergent integral with a singular endpoint — `∫[0,1] sin(x)/x`, `∫[0,1] ln(x)` — returns `NaN` rather than a value. Both are worth raising; this server runs it twice and reports only the agreed digits in the meantime. |
 | An unknown identifier still becomes implicit multiplication silently | 2.0.0 closed most of this: `exp`, `log10`, `log2`, `pow`, `floor`, `ceil`, `round`, `min`, `max` and `gcd` became real functions, and eleven names the library does not have are now refused by name. The general case remains — `im(z)` is `im * z` — and cannot be closed without refusing `a(b + c)`, so a warning or a strict default is still the only answer. This server warns. |
 
 ## Fixed upstream, kept here as a record
 
-Each of these was on the list above and reproduced no longer at the 2.0.0 upgrade. Listed
-so that nobody re-reports them, and so the cost of not re-measuring is visible.
+Each of these was on the list above and reproduced no longer at an upgrade. Listed so that
+nobody re-reports them, and so the cost of not re-measuring is visible.
+
+- **`Integrate` declining `x^4*(1-x)^4/(1+x^2)`** (at 2.5.0). It divides the rational
+  function out itself now, and the integral over `[0, 1]` is exactly `22/7 - pi`, which
+  `--selftest` checks as an identity.
+- **The determinant's pivot guards** (at 2.5.0). `det([[a,b],[c,d]])` was
+  `a*d - b*c provided not a = 0`; it is `a*d - b*c`.
 
 - **`Factorize(x^2 - 1)` emitting `sqrt(1)`.** Dropped before 2.0.0: true of 1.4.0, false
   of the branch, and it went stale unnoticed. This is why `--selftest` exists.

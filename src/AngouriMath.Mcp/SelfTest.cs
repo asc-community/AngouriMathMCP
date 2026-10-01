@@ -45,6 +45,17 @@ public static class SelfTest
         ("42 is 101010 in binary", () => MathS.ToBaseN(42, 2) == "101010"),
         ("42 is the 5th Catalan number", () => Value("10! / (6! * 5!)") == "42"),
         ("Pythagoras: sin^2 + cos^2 = 1", () => IsZero("sin(x)^2 + cos(x)^2 - 1")),
+        ("22/7 - pi is the integral of x^4*(1-x)^4/(1+x^2) over [0, 1]", () =>
+        {
+            // Documented as declined until 2.5.0 integrated it whole; kept as an identity so
+            // the proof the reliability resource walks through cannot silently stop working.
+            var outcome = Parsing.Parse("x^4*(1-x)^4/(1+x^2)");
+            if (outcome.Entity is null) return false;
+            var x = MathS.Var("x");
+            var antiderivative = outcome.Entity.Integrate(x);
+            var value = antiderivative.Substitute(x, 1) - antiderivative.Substitute(x, 0);
+            return Numeric.IsZero((value - (MathS.FromString("22/7") - MathS.pi)).Simplify());
+        }),
         ("d/dx integral of x*ln(x) returns the integrand", () =>
         {
             var outcome = Parsing.Parse("x*ln(x)");
@@ -85,22 +96,6 @@ public static class SelfTest
             var ratio = Math.Abs(fine - coarse) / Math.Abs(finer - fine);
             return ratio is > 1.7 and < 2.3;
         }, "error halves per doubling, so ~4 digits at 4000 steps; Simpson would give more"),
-        ("integral of x^4*(1-x)^4/(1+x^2)", () =>
-        {
-            var outcome = Parsing.Parse("x^4*(1-x)^4/(1+x^2)");
-            if (outcome.Entity is null) return false;
-            var result = outcome.Entity.Integrate(MathS.Var("x")).Stringize();
-            return Guard.IsDeclined(result);
-        }, "declined, though it succeeds once divided out by hand"),
-        ("determinant leaves a pivot guard", () =>
-        {
-            var m = MathS.Matrix(new Entity[,]
-            {
-                { MathS.Var("a"), MathS.Var("b") },
-                { MathS.Var("c"), MathS.Var("d") },
-            });
-            return m.Determinant is { } det && Analysis.Conditions(det.Simplify()).Count > 0;
-        }, "det([[a,b],[c,d]]) carries `provided not a = 0`"),
     ];
 
     public static int Run(TextWriter output)

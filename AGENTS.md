@@ -23,7 +23,8 @@ every documented defect.
 ## Which AngouriMath you built against
 
 The build uses a **sibling AngouriMath checkout at `../AngouriMath` when one exists, and the
-released 2.1.0 NuGet package when it does not**. It prints which; read the line.
+released NuGet package (2.5.0, set once as `AngouriMathPackageVersion`) when it does not**.
+It prints which, and the version; read the line.
 
 This used to be the first trap in the repo — the fallback was 1.4.0, which behaves
 differently enough that two assertions in `test/smoke.sh` failed against it legitimately

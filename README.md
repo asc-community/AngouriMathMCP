@@ -264,14 +264,13 @@ Limits worth knowing: there are no eigenvectors, no SVD, and no matrix exponenti
 and that is Abel–Ruffini rather than a defect — no general radical solution exists. Ten qubits
 would be a 1024×1024 symbolic matrix; this dies long before that.
 
-**A defect it works around.** `Entity.Matrix.Determinant` calls GenericTensor's
-`DeterminantGaussianSafeDivision`, which divides by pivots and leaves a `provided` guard for
-each. Those guards are artefacts, not mathematics: the raw output claims
-`det([[a,b],[c,d]]) = a*d - b*c provided not a = 0`, and eigenvalues of `[[0,J],[J,0]]` come
-back as `J provided not J = 0` — excluding a perfectly valid case. This server simplifies
-*first* (the guard is what licenses cancelling `a/a`), then strips the guard and reports it
-under `dropped_guards`. The real fix belongs upstream: GenericTensor already ships a
-division-free `DeterminantLaplace`, which emits none of this.
+**Pivot guards.** Before AngouriMath 2.5.0 the determinant divided by pivots and left a
+`provided` guard for each — `det([[a,b],[c,d]]) = a*d - b*c provided not a = 0`, and
+eigenvalues of `[[0,J],[J,0]]` came back as `J provided not J = 0` — artefacts rather than
+mathematics. 2.5.0's determinant leaves none: `a*d - b*c`, and `lambda^2 - J^2` for that
+characteristic polynomial. This server still simplifies *first* and strips any guard that
+remains, reporting it under `dropped_guards`, so a guard from any other pivoting routine is
+handled the same way.
 
 ## Step-by-step, and knowing what to distrust
 
