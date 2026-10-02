@@ -1,5 +1,9 @@
 # Working on this repo
 
+> **Archived.** The server is `amcli mcp` in AngouriMath's
+> [`Sources/MCP`](https://github.com/asc-community/AngouriMath/tree/master/Sources/MCP), and its
+> invariants are in the README there. Work on it there; nothing here builds into a release.
+
 An MCP server exposing AngouriMath to LLM agents. The design thesis is **verification, not
 calculation**: models are confident they can do algebra, so a tool that merely offers to do
 it for them goes unused. Everything here is shaped by that — integrals are checked by
