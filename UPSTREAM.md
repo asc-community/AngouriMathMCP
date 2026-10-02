@@ -1,5 +1,11 @@
 # What belongs in AngouriMath, not here
 
+> **Archived.** The server is part of AngouriMath now, and what this file asked of the library is
+> filed there: [#1673](https://github.com/asc-community/AngouriMath/issues/1673),
+> [#1674](https://github.com/asc-community/AngouriMath/issues/1674),
+> [#1675](https://github.com/asc-community/AngouriMath/issues/1675) and
+> [#1676](https://github.com/asc-community/AngouriMath/issues/1676).
+
 This server is an adapter. Anything that is a genuine computer-algebra feature belongs in
 the library, where `AngouriMathCLI`, `AngouriMath.Terminal` and the Jupyter integration get
 it too. This file records where the line was drawn, so the adapter does not quietly grow a
